@@ -1,0 +1,32 @@
+{
+  "name": "proyecto-daci-lineamientos",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pipeline en Node.js (JS puro) para convertir requerimientos y lineamientos crudos a Markdown y generar matrices Excel.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "generar:requerimientos": "node src/index.js step:0 --solo=requerimientos",
+    "generar:lineamientos": "node src/index.js step:0 --solo=lineamientos",
+    "step:0": "node src/index.js step:0",
+    "step:1": "node src/index.js step:1",
+    "step:2": "node --env-file=.env src/index.js step:2",
+    "step:3": "node src/index.js step:3",
+    "step:4": "node src/index.js step:4",
+    "step:5": "node src/index.js step:5",
+    "generate:formato_json_ficha_requerimientos": "node --env-file=.env src/index.js generate:formato_json_ficha_requerimientos",
+    "analizar:requerimiento": "node --env-file=.env src/index.js step:2",
+    "pipeline": "node --env-file=.env src/index.js pipeline"
+  },
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "dotenv": "^17.4.2",
+    "exceljs": "^4.4.0",
+    "fast-glob": "^3.3.2",
+    "mammoth": "^1.8.0",
+    "openai": "^6.39.0",
+    "pdf-parse": "^1.1.1"
+  }
+}

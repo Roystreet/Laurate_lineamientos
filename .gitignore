@@ -1,0 +1,41 @@
+# ─── Dependencias ────────────────────────────────────────────────────────────
+node_modules/
+
+# ─── Variables de entorno ────────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+
+# ─── Logs ────────────────────────────────────────────────────────────────────
+logs/
+*.log
+npm-debug.log*
+
+# ─── Archivos temporales ─────────────────────────────────────────────────────
+*.tmp
+*.temp
+.cache/
+
+# ─── Outputs generados (datos procesados) ────────────────────────────────────
+data/mutable/
+data/matriz-lineamientos/
+
+# ─── Archivos de datos sensibles o pesados ───────────────────────────────────
+data/data-sin-procesar/*.pdf
+data/data-sin-procesar/*.docx
+data/data-sin-procesar/*.doc
+data/data-sin-procesar/*.xlsx
+data/data-sin-procesar/*.xls
+
+# ─── Sistema operativo ───────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─── Editores e IDEs ─────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
