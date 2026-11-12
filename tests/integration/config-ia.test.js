@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { buildServer } from '../../src/platform/server.js';
 import { pool, migrate, query, transaction } from '../../src/platform/db.js';
 import { production, insertVersion, allocateRuleCode, listVersions, ruleHistory, republish, listRules } from '../../src/platform/config-ia/versions.js';
+import { casesFor, createRequest, requestDetail, saveDraft, rejectRequest, listRequests } from '../../src/platform/config-ia/requests.js';
 import { fakeLlm, seedAnalyzed } from './helpers.js';
 
 let app;
@@ -61,4 +62,59 @@ test('versiones: v1 inicial, análisis congela versión, reglas llegan al prompt
   assert.deepEqual(await listRules({ estado: 'activa' }), []);
   assert.equal((await listRules({ criterio: 2, q: 'firmas' })).length, 1);
   assert.equal((await listRules({ criterio: 3 })).length, 0);
+});
+
+test('solicitudes: liga a hallazgo, copia de fila, borrador y conflictos', async () => {
+  const llm = fakeLlm();
+  const { reqId, runId } = await seedAnalyzed(app, '7.2.1', llm);
+  const cases = await casesFor(reqId);
+  assert.equal(cases.length, 1);
+  assert.equal(cases[0].ejecucion_id, runId);
+  assert.equal(cases[0].criterios.length, 6);
+  const base = { autor: 'Luis', descripcion: 'Marca la falta de firma', esperado: 'No marcar firmas', ejecucionId: runId, requerimientoId: reqId };
+
+  const s = await createRequest({ ...base, criterioId: 2, filaOrden: 0 });
+  let d = await requestDetail(s.id);
+  assert.equal(d.numero, s.numero);
+  assert.equal(d.estado, 'pendiente');
+  assert.equal(d.requerimiento_codigo, '7.2.1');
+  assert.equal(d.criterio_nombre, 'Coherencia');
+  assert.equal(d.fila_copia.criterio, 'Coherencia');
+  await query("UPDATE resultados_criterio SET filas='[]' WHERE ejecucion_id=? AND criterio_id=2", [runId]);
+  assert.equal((await requestDetail(s.id)).fila_copia.criterio, 'Coherencia');
+
+  const missing = await createRequest({ ...base, criterioId: 3 });
+  assert.equal((await requestDetail(missing.id)).fila_copia, null);
+  await assert.rejects(createRequest({ ...base, criterioId: 9 }), (e) => e.statusCode === 404);
+  await assert.rejects(createRequest({ ...base, criterioId: 3, filaOrden: 5 }), (e) => e.statusCode === 400);
+  await assert.rejects(createRequest({ ...base, criterioId: 3, descripcion: ' ' }), (e) => e.statusCode === 400);
+  await assert.rejects(createRequest({ ...base, criterioId: 3, autor: '' }), (e) => e.statusCode === 400);
+
+  d = await saveDraft(s.id, { autor: 'Ana', cambios: [{ op: 'crear', texto: 'No exigir firma física', criterios: [2], motivo: 'Firma' }] });
+  assert.match(d.borrador.cambios[0].codigo, /^R-\d+$/);
+  assert.equal(d.borrador.cambios[0].autor, 'Ana');
+  assert.equal(d.estado, 'en_prueba');
+  assert.deepEqual(d.borrador.criterios_tocados, [2]);
+  assert.equal(d.borrador.reglas.find((r) => r.codigo === d.borrador.cambios[0].codigo).texto, 'No exigir firma física');
+  assert.ok(d.eventos.some((e) => e.tipo === 'borrador_guardado'));
+
+  const code = await transaction(async (c) => allocateRuleCode(c));
+  await publishRules([...(await production()).reglas, { codigo: code, texto: 'Original', criterios: [3], activa: true }]);
+  d = await saveDraft(missing.id, { autor: 'Ana', cambios: [{ op: 'modificar', codigo: code, texto: 'Editada', motivo: 'x' }] });
+  assert.equal(d.borrador.cambios[0].antes.texto, 'Original');
+  assert.deepEqual(d.borrador.conflictos, []);
+  await publishRules((await production()).reglas.map((r) => (r.codigo === code ? { ...r, texto: 'Cambiada por otro' } : r)), 'Otro');
+  d = await requestDetail(missing.id);
+  assert.equal(d.borrador.base.numero, (await production()).numero);
+  assert.equal(d.borrador.conflictos[0].codigo, code);
+  assert.equal(d.publicacion.motivo, 'Resuelve los conflictos del borrador.');
+  d = await saveDraft(missing.id, { autor: 'Ana', cambios: [{ op: 'modificar', codigo: code, texto: 'Editada', motivo: 'x' }] });
+  assert.deepEqual(d.borrador.conflictos, []);
+
+  await assert.rejects(rejectRequest(s.id, { autor: 'Ana', motivo: '' }), (e) => e.statusCode === 400);
+  await rejectRequest(s.id, { autor: 'Ana', motivo: 'No aplica' });
+  assert.equal((await requestDetail(s.id)).estado, 'rechazada');
+  await assert.rejects(saveDraft(s.id, { autor: 'Ana', cambios: [] }), (e) => e.statusCode === 409);
+  const list = await listRequests();
+  assert.ok(list.some((r) => r.id === s.id && r.estado_visible === 'rechazada' && r.requerimiento_codigo === '7.2.1'));
 });
