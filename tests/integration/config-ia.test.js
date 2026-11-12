@@ -102,7 +102,9 @@ test('solicitudes: liga a hallazgo, copia de fila, borrador y conflictos', async
 
   const code = await transaction(async (c) => allocateRuleCode(c));
   await publishRules([...(await production()).reglas, { codigo: code, texto: 'Original', criterios: [3], activa: true }]);
-  d = await saveDraft(missing.id, { autor: 'Ana', cambios: [{ op: 'modificar', codigo: code, texto: 'Editada', motivo: 'x' }] });
+  await assert.rejects(saveDraft(missing.id, { autor: 'Ana', cambios: [{ op: 'modificar', codigo: code, texto: 'Editada', motivo: 'x' }] }), (e) => e.statusCode === 400);
+  const original = { texto: 'Original', criterios: [3], activa: true };
+  d = await saveDraft(missing.id, { autor: 'Ana', cambios: [{ op: 'modificar', codigo: code, texto: 'Editada', motivo: 'x', antes: original }] });
   assert.equal(d.borrador.cambios[0].antes.texto, 'Original');
   assert.deepEqual(d.borrador.conflictos, []);
   await publishRules((await production()).reglas.map((r) => (r.codigo === code ? { ...r, texto: 'Cambiada por otro' } : r)), 'Otro');
@@ -110,7 +112,11 @@ test('solicitudes: liga a hallazgo, copia de fila, borrador y conflictos', async
   assert.equal(d.borrador.base.numero, (await production()).numero);
   assert.equal(d.borrador.conflictos[0].codigo, code);
   assert.equal(d.publicacion.motivo, 'Resuelve los conflictos del borrador.');
-  d = await saveDraft(missing.id, { autor: 'Ana', cambios: [{ op: 'modificar', codigo: code, texto: 'Editada', motivo: 'x' }] });
+  // A stale screen keeps sending the old reference: still a conflict.
+  d = await saveDraft(missing.id, { autor: 'Ana', cambios: [{ op: 'modificar', codigo: code, texto: 'Editada', motivo: 'x', antes: original }] });
+  assert.equal(d.borrador.conflictos[0].codigo, code);
+  // Resolving explicitly against the current production text clears it.
+  d = await saveDraft(missing.id, { autor: 'Ana', cambios: [{ op: 'modificar', codigo: code, texto: 'Editada', motivo: 'x', antes: { ...original, texto: 'Cambiada por otro' } }] });
   assert.deepEqual(d.borrador.conflictos, []);
 
   await assert.rejects(rejectRequest(s.id, { autor: 'Ana', motivo: '' }), (e) => e.statusCode === 400);
@@ -287,4 +293,22 @@ test('API config-ia: flujo completo por HTTP', async () => {
   assert.equal((await post(`/api/config-ia/versions/${numero}/republish`, { autor: 'Luis', motivo: 'Probar' })).statusCode, 201);
   r = await post('/api/config-ia/requests', { ...body, criterioId: 3, filaOrden: undefined });
   assert.equal((await post(`/api/config-ia/requests/${j(r).id}/reject`, { autor: 'Ana', motivo: 'No aplica' })).statusCode, 200);
+});
+
+test('playground: re-ejecutar una tarea borra el veredicto anterior', async () => {
+  const llm = fakeLlm();
+  const { reqId, runId } = await seedAnalyzed(app, '7.6.1', llm);
+  const s = await requestWithRule(reqId, runId);
+  const t = await createTest({ solicitudId: s.id, autor: 'Ana', casos: [{ ejecucionId: runId, requerimientoId: reqId }] });
+  await drain(llm);
+  await recordVerdict(t.id, { revisor: 'Luis', veredicto: 'funciono' });
+  assert.equal((await requestDetail(s.id)).publicacion.ok, true);
+  await query("UPDATE tareas_procesamiento SET estado='queued' WHERE tipo='prueba' AND JSON_UNQUOTE(JSON_EXTRACT(payload,'$.pruebaId'))=? AND JSON_UNQUOTE(JSON_EXTRACT(payload,'$.lado'))='borrador'", [t.id]);
+  await drain(llm);
+  const d = await testDetail(t.id);
+  assert.equal(d.veredicto, null);
+  assert.equal(d.revisor, null);
+  const r = await requestDetail(s.id);
+  assert.equal(r.estado, 'en_prueba');
+  assert.equal(r.publicacion.motivo, 'La prueba debe estar marcada como Funcionó.');
 });

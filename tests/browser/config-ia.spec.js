@@ -21,7 +21,7 @@ function mockApi(){
     'POST /api/config-ia/requests':(body)=>{
       state.bodies.request=body;
       state.request={id:'s1',numero:1,autor:body.autor,descripcion:body.descripcion,esperado:body.esperado,estado:'pendiente',criterio_id:2,criterio_nombre:'Coherencia',requerimiento_codigo:'5.1',requerimiento_id:'r1',ejecucion_id:'run1',created_at:now,fila_orden:0,fila_copia:finding,motivo_rechazo:null,
-        borrador:{base:{numero:1,reglas:[]},cambios:[],reglas:[],conflictos:[],criterios_tocados:[]},pruebas:[],eventos:[{tipo:'creada',autor:body.autor,detalle:null,created_at:now}],publicacion:{ok:false,motivo:'El borrador no tiene cambios.'}};
+        borrador:{base:{numero:1,reglas:[{codigo:'R-9',texto:'Regla base',criterios:[3],activa:true}]},cambios:[],reglas:[{codigo:'R-9',texto:'Regla base',criterios:[3],activa:true}],conflictos:[],criterios_tocados:[]},pruebas:[],eventos:[{tipo:'creada',autor:body.autor,detalle:null,created_at:now}],publicacion:{ok:false,motivo:'El borrador no tiene cambios.'}};
       return {id:'s1',numero:1};
     },
     'GET /api/config-ia/requests/s1':()=>detail(),
@@ -85,13 +85,27 @@ test('Config IA: solicitud, borrador, prueba lado a lado, veredicto y publicaci�
 
   const detail=page.getByRole('dialog',{name:'Solicitud #1'});
   await expect(detail).toContainText('Falta firma de aprobación');
+  // Edit a production rule: the change must carry the rule as it was shown (antes).
+  await detail.locator('li',{hasText:'R-9'}).getByRole('button',{name:'Editar'}).click();
+  await detail.getByLabel('Texto de la regla').fill('Regla base editada');
+  await detail.getByLabel('Motivo del cambio').fill('Ajuste');
+  await detail.getByRole('button',{name:'Aplicar al borrador'}).click();
+  // Add a rule, then edit it before saving: it must stay a single change.
   await detail.getByRole('button',{name:'Agregar regla'}).click();
-  await detail.getByLabel('Texto de la regla').fill('No exigir firma física en planes');
+  await detail.getByLabel('Texto de la regla').fill('No exigir firma');
   await detail.getByLabel('Motivo del cambio').fill('Firma');
+  await detail.getByRole('button',{name:'Aplicar al borrador'}).click();
+  await detail.locator('li',{hasText:'No exigir firma'}).getByRole('button',{name:'Editar'}).click();
+  await detail.getByLabel('Texto de la regla').fill('No exigir firma física en planes');
   await detail.getByRole('button',{name:'Aplicar al borrador'}).click();
   await detail.getByRole('button',{name:'Guardar borrador'}).click();
   await expect(detail).toContainText('R-1');
-  expect(state.bodies.draft).toMatchObject({autor:'Ana',cambios:[{op:'crear',texto:'No exigir firma física en planes',criterios:[2],motivo:'Firma'}]});
+  expect(state.bodies.draft.autor).toBe('Ana');
+  expect(state.bodies.draft.cambios).toHaveLength(2);
+  expect(state.bodies.draft.cambios).toEqual(expect.arrayContaining([
+    expect.objectContaining({op:'crear',texto:'No exigir firma física en planes',criterios:[2],motivo:'Firma'}),
+    expect.objectContaining({op:'modificar',codigo:'R-9',texto:'Regla base editada',antes:{texto:'Regla base',criterios:[3],activa:true}}),
+  ]));
 
   await detail.getByRole('button',{name:'Probar en el playground'}).click();
   await expect(page.getByText('Solicitud #1 · 5.1 · Coherencia')).toBeVisible();

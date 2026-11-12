@@ -91,3 +91,11 @@ test('canPublish: cada motivo y el caso válido', () => {
   const anteriorFallida = { ...valid, veredicto: 'no_funciono', created_at: '2026-01-01' };
   assert.equal(canPublish({ production, cambios, tests: [valid, anteriorFallida] }).ok, true);
 });
+
+test('canPublish: una prueba parcial (con errores) no habilita publicar', () => {
+  const production = { id: 'v2', reglas: base };
+  const cambios = [crear('R-3', [4])];
+  const huella = rulesFingerprint(applyChanges(base, cambios).rules);
+  const partial = { base_version_id: 'v2', huella, criterios: [4], exploratoria: false, estado: 'partial', veredicto: 'funciono', created_at: '2026-01-02' };
+  assert.deepEqual(canPublish({ production, cambios, tests: [partial] }), { ok: false, motivo: 'La prueba tuvo errores; vuelve a probar.' });
+});

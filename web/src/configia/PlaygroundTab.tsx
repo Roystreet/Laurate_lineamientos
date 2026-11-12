@@ -79,6 +79,7 @@ export function PlaygroundTab({solicitudId,onSelect,onChanged,onError}:{solicitu
       {test.tareas.map(t=><div key={t.id} className="cia-warning">{t.error}<button className="text-button" onClick={()=>void act(async()=>{await post(`/tasks/${t.id}/retry`);setTestId(null);setTimeout(()=>setTestId(test.id),0);})}><RefreshCw size={13}/>Reintentar</button></div>)}
       <SideBySide detail={test}/>
       {!ACTIVE.includes(test.estado)?<div className="cia-decision">
+        {test.estado==='partial'?<p className="cia-warning">La prueba tuvo errores en algún criterio: revisa el resultado; no habilita publicar hasta que una prueba termine sin errores.</p>:null}
         {test.veredicto?<p>Veredicto: <StateBadge estado={test.veredicto}/> {test.revisor}{test.comentario?` — ${test.comentario}`:''}</p>:null}
         {!closed?<><AuthorField value={autor} onChange={setAutor} label="Revisado por"/>
         <label className="cia-field">Comentario<input value={comentario} onChange={e=>setComentario(e.target.value)} placeholder="Opcional"/></label>

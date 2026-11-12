@@ -95,7 +95,11 @@ export async function processTestTask(task, llm) {
   const [prueba] = await query('SELECT * FROM ia_pruebas WHERE id=?', [pruebaId]);
   const [run] = await query('SELECT snapshot FROM ejecuciones WHERE id=?', [ejecucionId]);
   if (!prueba || !run) throw new Error('Prueba o análisis no encontrado.');
-  await query("UPDATE ia_pruebas SET estado='running', finished_at=NULL WHERE id=?", [pruebaId]);
+  // Re-running any part of a test invalidates a verdict given on the previous results.
+  await transaction(async (c) => {
+    await query("UPDATE ia_pruebas SET estado='running', finished_at=NULL, veredicto=NULL, revisor=NULL, comentario=NULL WHERE id=?", [pruebaId], c);
+    if (prueba.veredicto && !prueba.exploratoria && prueba.solicitud_id) await query("UPDATE ia_solicitudes SET estado='en_prueba' WHERE id=? AND estado IN ('funciono','no_funciono')", [prueba.solicitud_id], c);
+  });
   const { tipo, ctx, buildArgs, dryMeta } = buildAnalysisInputs(json(run.snapshot), requirementId);
   const criterio = planCriterios(tipo).find((k) => k.id === criterioId);
   const rules = json(lado === 'borrador' ? prueba.reglas_borrador : prueba.reglas_comparacion);

@@ -95,13 +95,10 @@ export async function saveDraft(id, { autor, cambios }) {
   await transaction(async (c) => {
     const solicitud = await loadRequest(id, c, true);
     if (CLOSED.includes(solicitud.estado)) throw fail('La solicitud ya está cerrada.', 409);
-    const base = await versionById(solicitud.base_version_id, c);
     for (const change of validated) {
       if (change.op === 'crear' && !change.codigo) change.codigo = await allocateRuleCode(c);
-      if (change.op === 'modificar' && !change.antes) {
-        const current = base.reglas.find((r) => r.codigo === change.codigo);
-        if (current) change.antes = { texto: current.texto, criterios: current.criterios, activa: current.activa };
-      }
+      // `antes` is the rule as the editor saw it; without it a stale screen could overwrite a newer production rule.
+      if (change.op === 'modificar' && !change.antes) throw fail(`Falta la versión de referencia de ${change.codigo}; recarga la solicitud.`);
     }
     await query("UPDATE ia_solicitudes SET cambios=?, estado='en_prueba' WHERE id=?", [JSON.stringify(validated), id], c);
     await addEvent(id, 'borrador_guardado', who, { cambios: validated.length }, c);

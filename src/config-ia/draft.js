@@ -119,6 +119,7 @@ export function canPublish({ production, cambios, tests }) {
   const latest = tests.filter((t) => !t.exploratoria).sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
   if (!latest) return no('Ejecuta una prueba completa del borrador.');
   if (!DONE.includes(latest.estado)) return no('Espera a que termine la prueba.');
+  if (latest.estado !== 'complete') return no('La prueba tuvo errores; vuelve a probar.');
   if (latest.base_version_id !== production.id) return no('Producción cambió; vuelve a probar.');
   if (latest.huella !== rulesFingerprint(rules)) return no('El borrador cambió después de la prueba; vuelve a probar.');
   if (touchedCriteria(production.reglas, cambios).some((id) => !latest.criterios.includes(id))) return no('La prueba no incluyó todos los criterios que toca el cambio.');
