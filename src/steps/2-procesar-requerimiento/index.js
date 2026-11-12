@@ -6,6 +6,7 @@ import { logger } from '../../helpers/logger.js';
 import { writeHallazgosExcel } from '../../helpers/excel.helper.js';
 import { callOpenAI, parseLlmJson, parseLlmJsonObject } from '../../llm/index.js';
 import { planCriterios, normalizeTipo } from '../../prompt/criterios/index.js';
+import { applyRules } from '../../config-ia/prompt.js';
 
 // gpt-5.4-mini: modelo de razonamiento (400k contexto, 128k salida). NO se limita la salida
 // (sin max_output_tokens) para evitar respuestas acotadas; la "inteligencia" se ajusta vía
@@ -222,7 +223,7 @@ async function cargarRelacionados(codigos, jsonBase) {
 }
 
 /** Evalúa un criterio (o devuelve filas sintéticas si no aplica / dry-run / error). */
-export async function evaluarCriterio(criterio, { dryRun, ctx, buildArgs, dryMeta, llm = callOpenAI, model = MODEL, reasoningEffort = REASONING_EFFORT }) {
+export async function evaluarCriterio(criterio, { dryRun, ctx, buildArgs, dryMeta, llm = callOpenAI, model = MODEL, reasoningEffort = REASONING_EFFORT, rules = [] }) {
   if (!criterio.aplica) {
     return { criterio, rows: [filaNoAplica(criterio.nombre, ctx)], llamado: false, error: false };
   }
@@ -230,7 +231,9 @@ export async function evaluarCriterio(criterio, { dryRun, ctx, buildArgs, dryMet
     return { criterio, rows: filasDryRun(criterio, ctx, dryMeta), llamado: false, error: false };
   }
   try {
-    const { system, user } = criterio.build(buildArgs);
+    const built = criterio.build(buildArgs);
+    const system = applyRules(built.system, rules, criterio.id);
+    const { user } = built;
     const { rawText } = await llm({
       system,
       user,
