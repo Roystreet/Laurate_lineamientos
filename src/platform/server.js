@@ -13,6 +13,8 @@ import { SUPPORTED_EXTS } from '../helpers/parsers/index.js';
 import { pool, query, json } from './db.js';
 import { storagePath, fileHash } from './storage.js';
 import * as model from './model.js';
+import { registerConfigIaRoutes } from './config-ia/routes.js';
+import { production } from './config-ia/versions.js';
 
 const failure=(message,statusCode=400)=>Object.assign(new Error(message),{statusCode});
 async function validateSignature(file,ext) {
@@ -43,7 +45,8 @@ export async function buildServer() {
     }
   });
   app.get('/api/health',async()=>{await query('SELECT 1');return {ok:true};});
-  app.get('/api/config',async()=>({parameters:publicConfig(),formats:SUPPORTED_EXTS,maxRequirements:10}));
+  app.get('/api/config',async()=>({parameters:publicConfig(),formats:SUPPORTED_EXTS,maxRequirements:10,reglasVersion:(await production()).numero}));
+  registerConfigIaRoutes(app);
   app.get('/api/requirements',()=>model.requirements());
   app.get('/api/requirements/:id/documents',(req)=>model.documents(req.params.id));
   app.get('/api/evidence-library',()=>model.evidenceLibrary());

@@ -239,3 +239,52 @@ test('publicar: condiciones, carrera y reprueba de otros borradores', async () =
   assert.equal(raced.find((r) => r.status === 'rejected').reason.statusCode, 409);
   assert.equal((await production()).numero, before + 3);
 });
+
+test('API config-ia: flujo completo por HTTP', async () => {
+  const llm = fakeLlm();
+  const { reqId, runId } = await seedAnalyzed(app, '7.5.1', llm);
+  const j = (r) => r.json();
+  const post = (url, payload, headers) => app.inject({ method: 'POST', url, payload, headers });
+  const cfg = j(await app.inject('/api/config'));
+  assert.equal(cfg.reglasVersion, (await production()).numero);
+  assert.equal(j(await app.inject(`/api/runs/${runId}`)).reglas_version, cfg.reglasVersion);
+  const cases = await app.inject(`/api/config-ia/cases?requirementId=${reqId}`);
+  assert.equal(cases.statusCode, 200);
+  assert.equal(j(cases)[0].ejecucion_id, runId);
+
+  const body = { autor: 'Luis', descripcion: 'Mal', ejecucionId: runId, requerimientoId: reqId, criterioId: 2, filaOrden: 0 };
+  let r = await post('/api/config-ia/requests', { ...body, autor: '' });
+  assert.equal(r.statusCode, 400);
+  assert.match(j(r).error, /nombre/);
+  assert.equal((await post('/api/config-ia/requests', body, { origin: 'http://otro.example' })).statusCode, 403);
+  r = await post('/api/config-ia/requests', body);
+  assert.equal(r.statusCode, 201);
+  const sid = j(r).id;
+  assert.equal((await app.inject('/api/config-ia/requests')).statusCode, 200);
+  assert.equal((await app.inject('/api/config-ia/requests/no-existe')).statusCode, 404);
+  r = await app.inject({ method: 'PUT', url: `/api/config-ia/requests/${sid}/draft`, payload: { autor: 'Ana', cambios: [{ op: 'crear', texto: 'Regla HTTP', criterios: [2], motivo: 'm' }] } });
+  assert.equal(r.statusCode, 200);
+  const codigo = j(r).borrador.cambios[0].codigo;
+
+  r = await post('/api/config-ia/tests', { solicitudId: sid, autor: 'Ana', casos: [{ ejecucionId: runId, requerimientoId: reqId }] });
+  assert.equal(r.statusCode, 202);
+  const tid = j(r).id;
+  await drain(llm);
+  r = await app.inject(`/api/config-ia/tests/${tid}`);
+  assert.equal(r.statusCode, 200);
+  assert.equal(j(r).estado, 'complete');
+  assert.equal((await post(`/api/config-ia/tests/${tid}/verdict`, { revisor: 'Luis', veredicto: 'funciono' })).statusCode, 200);
+  assert.equal(j(await app.inject(`/api/config-ia/requests/${sid}`)).publicacion.ok, true);
+  r = await post(`/api/config-ia/requests/${sid}/publish`, { autor: 'Luis' });
+  assert.equal(r.statusCode, 201);
+  const { numero } = j(r);
+
+  assert.equal(j(await app.inject('/api/config-ia/versions'))[0].numero, numero);
+  assert.ok(j(await app.inject(`/api/config-ia/versions/${numero}`)).reglas.some((x) => x.codigo === codigo));
+  assert.equal((await app.inject('/api/config-ia/versions/999')).statusCode, 404);
+  assert.equal(j(await app.inject('/api/config-ia/rules?estado=activa&q=HTTP')).length, 1);
+  assert.equal(j(await app.inject(`/api/config-ia/rules/${codigo}/history`))[0].accion, 'agregada');
+  assert.equal((await post(`/api/config-ia/versions/${numero}/republish`, { autor: 'Luis', motivo: 'Probar' })).statusCode, 201);
+  r = await post('/api/config-ia/requests', { ...body, criterioId: 3, filaOrden: undefined });
+  assert.equal((await post(`/api/config-ia/requests/${j(r).id}/reject`, { autor: 'Ana', motivo: 'No aplica' })).statusCode, 200);
+});
