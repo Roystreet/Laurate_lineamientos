@@ -2,6 +2,8 @@
 
 Índice central del pipeline. Cada step tiene su propio `.md` con detalles; este documento ofrece la visión global, el mapa de scripts y los comandos para ejecutarlos.
 
+> **Config IA (plataforma):** las reglas versionadas que se suman al prompt de cada criterio se describen en [`../docs/superpowers/specs/2026-11-12-config-ia-design.md`](../docs/superpowers/specs/2026-11-12-config-ia-design.md) y en la sección *Config IA* del [README](../README.md).
+
 ## 1. Visión general
 
 El proyecto es un pipeline de 6 pasos que toma documentos crudos (PDF, DOCX, XLSX, JSON, TXT) de requerimientos y lineamientos, los normaliza a Markdown, los valida, los analiza con un LLM (OpenAI `gpt-5-mini`) y emite varios Excel: por requerimiento, una matriz total y un consolidado global de hallazgos.

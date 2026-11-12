@@ -2,7 +2,7 @@
 
 ## Plataforma documental
 
-La plataforma permite cargar una ficha por archivo, asociar evidencias, preparar documentos con OCR y analizar hasta diez requerimientos por ejecución. Las cuatro pantallas son **Requerimientos**, **Evidencias**, **Análisis** y **Resultados**. El catálogo conserva versiones para reutilizar las fichas en nuevos análisis.
+La plataforma permite cargar una ficha por archivo, asociar evidencias, preparar documentos con OCR y analizar hasta diez requerimientos por ejecución. Las cuatro pantallas del flujo son **Requerimientos**, **Evidencias**, **Análisis** y **Resultados**; la sección **Config IA** permite mejorar el análisis con reglas versionadas. El catálogo conserva versiones para reutilizar las fichas en nuevos análisis.
 
 Utiliza React/Vite/TypeScript, Fastify, un worker Node.js y MySQL 8.4. No incorpora usuarios, roles, sesiones, instituciones, evaluaciones administrativas ni copias de seguridad.
 
@@ -64,6 +64,18 @@ El tour aparece en la primera visita y explica las cuatro pantallas. **Reiniciar
 
 Se admiten PDF, DOCX, TXT, Markdown, JSON, XLSX/XLSM, PNG y JPG/JPEG. El piloto no separa varias fichas dentro de un archivo, no clasifica documentos automáticamente y no permite editar hallazgos.
 
+### Config IA
+
+Config IA ajusta cómo analiza la IA sin tocar código. El texto base de los prompts (`src/prompt/**`) no cambia; las **reglas** activas de cada criterio se agregan al final de su prompt bajo el encabezado `REGLAS ADICIONALES (OBLIGATORIAS)`. Sin reglas aplicables, el prompt es idéntico al original.
+
+- **Versiones:** cada conjunto de reglas publicado es una versión inmutable (`v1` = sin reglas). Producción es la versión de mayor número. Cada análisis registra la versión con la que se hizo; Resultados muestra "Analizado con vN" o "Anterior a Config IA".
+- **Solicitudes:** quien ve un resultado incorrecto crea una solicitud ligada a ese hallazgo (o a "falta un hallazgo" en un criterio). Se guarda una copia de la fila. Cada solicitud tiene su borrador de cambios sobre producción.
+- **Playground:** compara producción (o una versión anterior) contra el borrador, en el caso de origen y en requerimientos de control elegidos. Usa las entradas congeladas del análisis original y reutiliza el resultado guardado solo si coinciden reglas, código del motor y modelo. Las pruebas se encolan con prioridad 40 y esperan su turno: se procesan cuando no hay lotes en curso y no bloquean nuevos análisis. No generan Excel ni aparecen en Resultados.
+- **Publicar:** requiere que la última prueba no exploratoria esté marcada "Funcionó", se haya hecho sobre la producción vigente y con exactamente las reglas a publicar. Al publicar, los demás borradores pasan a la nueva base y deben volver a probarse. **Volver a una versión** la republica como versión nueva, con nombre y motivo.
+- Sin usuarios: el nombre se escribe a mano y se recuerda en el navegador.
+
+Diseño y plan: [docs/superpowers/specs/2026-11-12-config-ia-design.md](docs/superpowers/specs/2026-11-12-config-ia-design.md), [docs/superpowers/plans/2026-11-12-config-ia.md](docs/superpowers/plans/2026-11-12-config-ia.md).
+
 ### Configuración y OCR
 
 [src/config/runtime.js](src/config/runtime.js) centraliza y valida los parámetros para API, worker y CLI. Cambiar `.env` requiere reiniciar los procesos; en Docker ejecutar `docker compose -p laureate-docs up -d --force-recreate app`.
@@ -101,6 +113,7 @@ Se conservan los archivos `<codigo>.xlsx` (hoja `hallazgos`), `consolidado.xlsx`
 | Documentos | `documentos`, `versiones_documento`, `paginas_documento`, `requerimiento_evidencias` |
 | Ejecución y cola | `versiones_motor`, `ejecuciones`, `entradas_ejecucion`, `tareas_procesamiento`, `coordinacion` |
 | Resultados y trazas | `llamadas_llm`, `resultados_criterio`, `evaluaciones_consideracion`, `hallazgos`, `reportes` |
+| Config IA | `ia_versiones`, `ia_reglas`, `ia_reglas_historial`, `ia_solicitudes`, `ia_solicitud_eventos`, `ia_pruebas`, `ia_pruebas_resultados`; `ejecuciones.reglas_version_id` |
 
 Cada ejecución congela fichas, evidencias, catálogo relacionado, fuentes del motor y parámetros efectivos sin secretos. Las versiones originales siguen disponibles tras reemplazos. La cola reclama trabajos mediante transacciones y `FOR UPDATE SKIP LOCKED`, libera la transacción antes de llamar a OpenAI y renueva reservas de 60 segundos. Una reserva expirada permite recuperar el trabajo; el propietario anterior no puede confirmar resultados ni sustituir el archivo de un reporte vigente.
 
@@ -127,6 +140,15 @@ Las operaciones de carga, análisis, OCR y reintento responden `202 Accepted` co
 | `GET /api/preparation` | Estado de preparación de documentos |
 | `POST /api/tasks/:id/retry` | Reintentar una tarea fallida |
 | `GET /api/reports/:id/download` | Descargar Excel |
+| `GET /api/config-ia/versions`, `GET /api/config-ia/versions/:numero` | Versiones publicadas y sus reglas |
+| `POST /api/config-ia/versions/:numero/republish` | Volver a una versión con `{ autor, motivo }`; responde `201` |
+| `GET /api/config-ia/rules`, `GET /api/config-ia/rules/:codigo/history` | Reglas (`criterio`, `estado`, `q`) e historial |
+| `GET /api/config-ia/cases?requirementId=` | Análisis de un requerimiento con sus filas por criterio |
+| `GET`/`POST /api/config-ia/requests`, `GET /api/config-ia/requests/:id` | Solicitudes de mejora |
+| `PUT /api/config-ia/requests/:id/draft` | Guardar borrador `{ autor, cambios }` |
+| `POST /api/config-ia/requests/:id/reject`, `.../publish` | Rechazar o publicar |
+| `POST /api/config-ia/tests`, `GET /api/config-ia/tests/:id` | Prueba del playground (`202`) y resultado lado a lado |
+| `POST /api/config-ia/tests/:id/verdict` | Veredicto `funciono` / `no_funciono` |
 
 ### Verificación
 
@@ -238,6 +260,7 @@ data/data-sin-procesar
 ## Documentación
 Detalle por script en [`documentacion/`](documentacion/):
 - [Índice general](documentacion/README.md)
+- [Config IA — diseño](docs/superpowers/specs/2026-11-12-config-ia-design.md) y [plan](docs/superpowers/plans/2026-11-12-config-ia.md)
 - [Step 0 — Convertir a Markdown](documentacion/step-0-convertir-a-markdown.md)
 - [Step 1 — Validar requerimientos](documentacion/step-1-validar-requerimientos.md)
 - [Step 2 — Procesar requerimiento (LLM)](documentacion/step-2-procesar-requerimiento.md)
