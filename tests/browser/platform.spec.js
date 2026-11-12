@@ -29,13 +29,14 @@ test('guided workflow, per-requirement analysis detail, original reports and res
   await page.screenshot({path:'test-results/catalog-mobile.png',fullPage:true});expect(errors).toEqual([]);
 });
 
-test('tour explains all four screens, can restart, closes with Escape and remembers completion',async({page})=>{
+test('tour explains all five screens, can restart, closes with Escape and remembers completion',async({page})=>{
   await page.goto('/');const dialog=page.getByRole('dialog',{name:'Cómo usar la aplicación'});await expect(dialog).toBeVisible();
   await expect(dialog).toContainText('De la ficha a los resultados');await page.getByRole('button',{name:'Siguiente',exact:true}).click();await expect(dialog).toContainText('1. Sube tu ficha');
   await page.getByRole('button',{name:'Siguiente',exact:true}).click();await expect(page.getByRole('heading',{name:'Evidencias',exact:true})).toBeVisible();
   await page.getByRole('button',{name:'Siguiente',exact:true}).click();await expect(page.getByRole('heading',{name:'Análisis',exact:true})).toBeVisible();
   await page.getByRole('button',{name:'Anterior',exact:true}).click();await expect(dialog).toContainText('2. Relaciona las evidencias');await page.getByRole('button',{name:'Siguiente',exact:true}).click();
   await page.getByRole('button',{name:'Siguiente',exact:true}).click();await expect(page.getByRole('heading',{name:'Resultados',exact:true})).toBeVisible();await expect(dialog).toContainText('4. Consulta cada requerimiento');
+  await page.getByRole('button',{name:'Siguiente',exact:true}).click();await expect(page.getByRole('heading',{name:'Config IA',exact:true})).toBeVisible();await expect(dialog).toContainText('5. Mejora el análisis');
   await page.screenshot({path:'test-results/tour-desktop.png'});await page.getByRole('button',{name:'Terminar tour'}).click();await expect(dialog).toHaveCount(0);expect(await page.evaluate(key=>localStorage.getItem(key),tourKey)).toBe('done');
   await page.reload();await expect(page.getByRole('heading',{name:'Requerimientos',exact:true})).toBeVisible();await expect(dialog).toHaveCount(0);
   await page.getByRole('button',{name:'Reiniciar tour'}).click();await expect(dialog).toContainText('De la ficha a los resultados');await page.setViewportSize({width:390,height:844});await page.screenshot({path:'test-results/tour-mobile.png'});await page.keyboard.press('Escape');await expect(dialog).toHaveCount(0);

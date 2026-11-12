@@ -1,0 +1,36 @@
+.cia-heading{flex-wrap:wrap}
+.cia-production{font-size:11px;color:var(--muted)}
+.cia-production strong{color:var(--green)}
+.cia-tab{display:flex;flex-direction:column;gap:14px}
+.cia-tab>.muted{margin:0}
+.cia-filters{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.cia-filters select{font-size:11px;padding:8px 11px}
+.cia-chips{display:inline-flex;flex-wrap:wrap;gap:4px}
+.cia-rule-text{min-width:240px;line-height:1.6;color:var(--ink)}
+.status.cia-rule-activa,.status.cia-funciono,.status.cia-publicada{background:#edf5ea;color:#648854}
+.status.cia-rule-solo_borrador,.status.cia-en_prueba,.status.cia-pendiente{background:#edf2f8;color:#8298b5}
+.status.cia-no_funciono,.status.cia-requiere_reprueba{background:#fbf0e8;color:#b48a63}
+.status.cia-rechazada,.status.cia-rule-inactiva{background:#f1f4ef;color:#7f9380}
+.cia-timeline,.cia-versions,.cia-changes,.cia-rule-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:12px}
+.cia-timeline li{border-left:2px solid var(--line);padding:0 0 0 14px}
+.cia-quote{background:var(--mint);border-radius:7px;padding:8px 12px;margin:6px 0;color:var(--ink)}
+.cia-versions>li{border:1px solid var(--line);border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:8px}
+.cia-versions>li.current{border-color:#bcd7c4;background:#fbfdfb}
+.cia-version-head{display:flex;flex-wrap:wrap;align-items:center;gap:10px;font-size:12px}
+.cia-meta{margin-left:auto;color:var(--muted);font-size:11px}
+.cia-motivo{font-size:12px;color:#53664c}
+.cia-changes{gap:6px;font-size:12px}
+.cia-changes li,.cia-rule-list li{display:flex;flex-wrap:wrap;align-items:center;gap:8px;line-height:1.6}
+.cia-rule-list li.inactive{opacity:.6}
+.cia-badge{font-size:10px;font-weight:600;border-radius:5px;padding:2px 7px;background:#f1f4ef;color:#7f9380}
+.cia-badge.agregada,.cia-badge.activada,.cia-badge.nueva{background:#edf5ea;color:#4c7951}
+.cia-badge.editada{background:#edf2f8;color:#5d79a0}
+.cia-badge.desactivada{background:#fbf0e8;color:#a76a4c}
+.cia-actions{display:flex;flex-wrap:wrap;gap:16px;align-items:center}
+.cia-form{display:flex;flex-direction:column;gap:14px}
+.cia-field{display:flex;flex-direction:column;gap:6px;font-size:11px;font-weight:600;color:#53664c}
+.cia-field input,.cia-field textarea,.cia-field select{font-weight:400;font-size:12px}
+textarea{font:inherit;border:1px solid #dce5df;border-radius:7px;padding:9px 12px;min-height:80px;resize:vertical;color:#32443e;max-width:100%}
+.cia-hint{font-size:11px;color:#a76a4c}
+.cia-warning{font-size:11px;background:#fff6f2;border:1px solid #f3ded2;color:#a76a4c;border-radius:7px;padding:8px 12px}
+@media(max-width:760px){.cia-meta{margin-left:0}.cia-production{width:100%}}
