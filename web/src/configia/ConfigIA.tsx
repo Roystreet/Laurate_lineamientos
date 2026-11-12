@@ -1,9 +1,10 @@
 import {useCallback,useEffect,useState} from 'react';
-import {api,Empty} from '../ui';
+import {api} from '../ui';
 import {formatDate,type Version} from './types';
 import {RulesTab} from './RulesTab';
 import {HistoryTab} from './HistoryTab';
 import {RequestsTab} from './RequestsTab';
+import {PlaygroundTab} from './PlaygroundTab';
 import './configia.css';
 
 type Tab='rules'|'requests'|'playground'|'history';
@@ -20,7 +21,7 @@ export function ConfigIA({onError}:{onError:(message:string)=>void}){
     </div>
     {tab==='rules'?<RulesTab revision={revision} onError={onError}/>:null}
     {tab==='requests'?<RequestsTab revision={revision} onChanged={refresh} onError={onError} onOpenPlayground={id=>{setPlaygroundFor(id);setTab('playground');}}/>:null}
-    {tab==='playground'?<Empty title="Playground" text={playgroundFor?'Disponible en la siguiente entrega.':'Abre una solicitud y pulsa Probar en el playground.'}/>:null}
+    {tab==='playground'?<PlaygroundTab key={playgroundFor ?? 'none'} solicitudId={playgroundFor} onSelect={setPlaygroundFor} onChanged={refresh} onError={onError}/>:null}
     {tab==='history'?<HistoryTab revision={revision} onPublished={refresh} onError={onError}/>:null}
   </section>;
 }
