@@ -16,6 +16,7 @@ import { evaluarCriterio } from '../steps/2-procesar-requerimiento/index.js';
 import { trackedLlm } from './llm-tracking.js';
 import { buildAnalysisInputs } from './analysis-inputs.js';
 import { versionById } from './config-ia/versions.js';
+import { processTestTask } from './config-ia/playground.js';
 import { planCriterios } from '../prompt/criterios/index.js';
 import { writeHallazgosExcel } from '../helpers/excel.helper.js';
 import { runStep3 } from '../steps/3-generar-excel-por-requerimiento/index.js';
@@ -150,5 +151,6 @@ export async function processTask(task,{llm=callOpenAI}={}) {
   if(task.tipo==='prepare') return prepare(task,llm);
   if(task.tipo==='analyze') return analyze(task,llm);
   if(task.tipo==='reports') return generateReports(task.ejecucion_id,{task});
+  if(task.tipo==='prueba') return processTestTask(task,llm);
   throw new Error('Tipo de tarea desconocido.');
 }

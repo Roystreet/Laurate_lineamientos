@@ -4,7 +4,10 @@ import { buildServer } from '../../src/platform/server.js';
 import { pool, migrate, query, transaction } from '../../src/platform/db.js';
 import { production, insertVersion, allocateRuleCode, listVersions, ruleHistory, republish, listRules } from '../../src/platform/config-ia/versions.js';
 import { casesFor, createRequest, requestDetail, saveDraft, rejectRequest, listRequests } from '../../src/platform/config-ia/requests.js';
-import { fakeLlm, seedAnalyzed } from './helpers.js';
+import { createTest, testDetail, recordVerdict } from '../../src/platform/config-ia/playground.js';
+import { claim, settle } from '../../src/platform/queue.js';
+import { processTask } from '../../src/platform/processor.js';
+import { fakeLlm, seedAnalyzed, seedPrepared, drain } from './helpers.js';
 
 let app;
 before(async () => { await migrate(); await migrate(); app = await buildServer(); });
@@ -33,7 +36,6 @@ test('versiones: v1 inicial, análisis congela versión, reglas llegan al prompt
 
   calls.length = 0;
   const run = await app.inject({ method: 'POST', url: '/api/runs', payload: { requirementIds: [first.reqId] } });
-  const { drain } = await import('./helpers.js');
   await drain(llm);
   assert.equal((await app.inject(`/api/runs/${run.json().id}`)).json().reglas_version, 2);
   assert.ok(calls.find((c) => c.system.includes('CRITERIO A EVALUAR: Coherencia')).system.endsWith('- [R-1] No exigir firmas'));
@@ -117,4 +119,85 @@ test('solicitudes: liga a hallazgo, copia de fila, borrador y conflictos', async
   await assert.rejects(saveDraft(s.id, { autor: 'Ana', cambios: [] }), (e) => e.statusCode === 409);
   const list = await listRequests();
   assert.ok(list.some((r) => r.id === s.id && r.estado_visible === 'rechazada' && r.requerimiento_codigo === '7.2.1'));
+});
+
+async function requestWithRule(reqId, runId, criterios = [2]) {
+  const s = await createRequest({ autor: 'Luis', descripcion: 'Hallazgo incorrecto', ejecucionId: runId, requerimientoId: reqId, criterioId: criterios[0], filaOrden: 0 });
+  const d = await saveDraft(s.id, { autor: 'Ana', cambios: [{ op: 'crear', texto: 'Regla de prueba', criterios, motivo: 'Probar' }] });
+  return { id: s.id, codigo: d.borrador.cambios[0].codigo };
+}
+const counts = async () => Object.fromEntries(await Promise.all(['resultados_criterio', 'hallazgos', 'reportes', 'ejecuciones'].map(async (t) => [t, (await query(`SELECT COUNT(*) n FROM ${t}`))[0].n])));
+
+test('playground: lado a lado, reutilización y aislamiento', async () => {
+  const calls = [], llm = fakeLlm(calls);
+  const { reqId, runId } = await seedAnalyzed(app, '7.3.1', llm);
+  const s = await requestWithRule(reqId, runId);
+  const before = await counts();
+  await assert.rejects(createTest({ solicitudId: s.id, autor: 'Ana', casos: [] }), (e) => e.statusCode === 400 && e.message === 'Selecciona entre 1 y 10 casos.');
+  await assert.rejects(createTest({ solicitudId: s.id, autor: 'Ana', casos: Array.from({ length: 11 }, () => ({ ejecucionId: runId, requerimientoId: reqId })) }), (e) => e.statusCode === 400);
+
+  const t = await createTest({ solicitudId: s.id, autor: 'Ana', casos: [{ ejecucionId: runId, requerimientoId: reqId }] });
+  await assert.rejects(recordVerdict(t.id, { revisor: 'Luis', veredicto: 'funciono' }), (e) => e.statusCode === 409 && e.message === 'Espera a que termine la prueba.');
+  calls.length = 0;
+  await drain(llm);
+  assert.equal(calls.length, 1);
+  assert.ok(calls[0].system.includes('CRITERIO A EVALUAR: Coherencia'));
+  let d = await testDetail(t.id);
+  assert.equal(d.estado, 'complete');
+  assert.equal(d.exploratoria, false);
+  assert.deepEqual(d.criterios, [2]);
+  assert.deepEqual(d.progreso, { total: 2, listos: 2, errores: 0 });
+  assert.equal(d.casos[0].origen, true);
+  assert.equal(d.casos[0].codigo, '7.3.1');
+  const c2 = d.casos[0].criterios.find((c) => c.criterio_id === 2);
+  assert.equal(d.casos[0].criterios.length, 1);
+  assert.equal(c2.nombre, 'Coherencia');
+  assert.equal(c2.produccion.origen, 'reutilizado');
+  assert.equal(c2.produccion.filas[0].estado, 'Cumple');
+  assert.equal(c2.borrador.origen, 'ejecutado');
+  assert.equal(c2.borrador.filas[0].estado, 'No cumple');
+  assert.deepEqual(await counts(), before);
+  assert.equal((await requestDetail(s.id)).estado, 'en_prueba');
+  await assert.rejects(recordVerdict(t.id, { revisor: 'Luis', veredicto: 'quizas' }), (e) => e.statusCode === 400);
+  d = await recordVerdict(t.id, { revisor: 'Luis', veredicto: 'funciono', comentario: 'Bien' });
+  assert.equal(d.veredicto, 'funciono');
+  assert.equal((await requestDetail(s.id)).estado, 'funciono');
+
+  const ex = await createTest({ solicitudId: s.id, autor: 'Ana', casos: [{ ejecucionId: runId, requerimientoId: reqId }], apagadas: [s.codigo] });
+  await drain(llm);
+  assert.equal((await testDetail(ex.id)).exploratoria, true);
+  await recordVerdict(ex.id, { revisor: 'Luis', veredicto: 'no_funciono' });
+  assert.equal((await requestDetail(s.id)).estado, 'funciono');
+  assert.equal((await requestDetail(s.id)).publicacion.ok, true);
+});
+
+test('playground: no reutiliza resultados con error', async () => {
+  const llm = fakeLlm();
+  const { reqId, runId } = await seedAnalyzed(app, '7.3.2', llm);
+  const s = await requestWithRule(reqId, runId);
+  await query("UPDATE resultados_criterio SET estado_tecnico='error' WHERE ejecucion_id=? AND criterio_id=2", [runId]);
+  const t = await createTest({ solicitudId: s.id, autor: 'Ana', casos: [{ ejecucionId: runId, requerimientoId: reqId }] });
+  assert.equal((await query("SELECT COUNT(*) n FROM ia_pruebas_resultados WHERE prueba_id=? AND lado='produccion'", [t.id]))[0].n, 0);
+  await drain(llm);
+  const c2 = (await testDetail(t.id)).casos[0].criterios[0];
+  assert.equal(c2.produccion.origen, 'ejecutado');
+  assert.equal(c2.produccion.estado_tecnico, 'complete');
+});
+
+test('playground: espera turno y no bloquea análisis', async () => {
+  const llm = fakeLlm();
+  const { reqId, runId } = await seedAnalyzed(app, '7.3.3', llm);
+  const other = await seedPrepared(app, '7.3.4', llm);
+  const s = await requestWithRule(reqId, runId);
+  const t = await createTest({ solicitudId: s.id, autor: 'Ana', casos: [{ ejecucionId: runId, requerimientoId: reqId }] });
+  const run = await app.inject({ method: 'POST', url: '/api/runs', payload: { requirementIds: [other] } });
+  assert.equal(run.statusCode, 202);
+  assert.equal((await testDetail(t.id)).en_espera, true);
+  const task = await claim();
+  assert.equal(task.tipo, 'analyze');
+  await processTask(task, { llm });
+  await settle(task);
+  await drain(llm);
+  assert.equal((await testDetail(t.id)).estado, 'complete');
+  assert.equal((await app.inject(`/api/runs/${run.json().id}`)).json().estado, 'complete');
 });
