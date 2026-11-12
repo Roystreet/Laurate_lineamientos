@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { buildServer } from '../../src/platform/server.js';
 import { pool, migrate, query, transaction } from '../../src/platform/db.js';
 import { production, insertVersion, allocateRuleCode, listVersions, ruleHistory, republish, listRules } from '../../src/platform/config-ia/versions.js';
-import { casesFor, createRequest, requestDetail, saveDraft, rejectRequest, listRequests } from '../../src/platform/config-ia/requests.js';
+import { casesFor, createRequest, requestDetail, saveDraft, rejectRequest, listRequests, publishRequest } from '../../src/platform/config-ia/requests.js';
 import { createTest, testDetail, recordVerdict } from '../../src/platform/config-ia/playground.js';
 import { claim, settle } from '../../src/platform/queue.js';
 import { processTask } from '../../src/platform/processor.js';
@@ -200,4 +200,42 @@ test('playground: espera turno y no bloquea análisis', async () => {
   await drain(llm);
   assert.equal((await testDetail(t.id)).estado, 'complete');
   assert.equal((await app.inject(`/api/runs/${run.json().id}`)).json().estado, 'complete');
+});
+
+test('publicar: condiciones, carrera y reprueba de otros borradores', async () => {
+  const llm = fakeLlm();
+  const { reqId, runId } = await seedAnalyzed(app, '7.4.1', llm);
+  const tested = async (s) => {
+    const t = await createTest({ solicitudId: s.id, autor: 'Ana', casos: [{ ejecucionId: runId, requerimientoId: reqId }] });
+    await drain(llm);
+    await recordVerdict(t.id, { revisor: 'Luis', veredicto: 'funciono' });
+  };
+  const A = await requestWithRule(reqId, runId), B = await requestWithRule(reqId, runId);
+  await assert.rejects(publishRequest(A.id, { autor: 'Ana' }), (e) => e.statusCode === 409 && e.message === 'Ejecuta una prueba completa del borrador.');
+  await tested(A); await tested(B);
+  const before = (await production()).numero;
+  assert.equal((await publishRequest(A.id, { autor: 'Marta' })).numero, before + 1);
+  assert.equal((await requestDetail(A.id)).estado, 'publicada');
+  const history = await ruleHistory(A.codigo);
+  assert.equal(history[0].autor, 'Ana');
+  assert.equal(history[0].accion, 'agregada');
+  assert.equal((await listVersions())[0].publicado_por, 'Marta');
+  await assert.rejects(publishRequest(A.id, { autor: 'Ana' }), (e) => e.statusCode === 409 && e.message === 'La solicitud ya está cerrada.');
+
+  await assert.rejects(publishRequest(B.id, { autor: 'Ana' }), (e) => e.statusCode === 409 && e.message === 'Producción cambió; vuelve a probar.');
+  assert.equal((await listRequests()).find((r) => r.id === B.id).estado_visible, 'requiere_reprueba');
+  await tested(B);
+  assert.equal((await publishRequest(B.id, { autor: 'Luis' })).numero, before + 2);
+
+  const C = await requestWithRule(reqId, runId);
+  await tested(C);
+  await saveDraft(C.id, { autor: 'Ana', cambios: [{ op: 'crear', codigo: C.codigo, texto: 'Otro texto', criterios: [2], motivo: 'x' }] });
+  await assert.rejects(publishRequest(C.id, { autor: 'Ana' }), (e) => e.statusCode === 409 && e.message === 'El borrador cambió después de la prueba; vuelve a probar.');
+
+  const D = await requestWithRule(reqId, runId), E = await requestWithRule(reqId, runId);
+  await tested(D); await tested(E);
+  const raced = await Promise.allSettled([publishRequest(D.id, { autor: 'Ana' }), publishRequest(E.id, { autor: 'Ana' })]);
+  assert.equal(raced.filter((r) => r.status === 'fulfilled').length, 1);
+  assert.equal(raced.find((r) => r.status === 'rejected').reason.statusCode, 409);
+  assert.equal((await production()).numero, before + 3);
 });

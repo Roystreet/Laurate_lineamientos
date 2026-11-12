@@ -120,3 +120,21 @@ export async function rejectRequest(id, { autor, motivo }) {
   });
   return requestDetail(id);
 }
+
+/** Publica el borrador como nueva versión de producción si su última prueba válida lo permite. */
+export async function publishRequest(id, { autor }) {
+  const who = normalizeAuthor(autor);
+  return transaction(async (c) => {
+    await lockCoordination(c);
+    const solicitud = await loadRequest(id, c, true);
+    const prod = await production(c);
+    const pub = publication(solicitud, prod, await testsOf(id, c));
+    if (!pub.ok) throw fail(pub.motivo, 409);
+    const { rules } = applyChanges(prod.reglas, solicitud.cambios);
+    const autores = Object.fromEntries(solicitud.cambios.map((ch) => [ch.codigo, { autor: ch.autor, motivo: ch.motivo }]));
+    await query("UPDATE ia_solicitudes SET estado='publicada' WHERE id=?", [id], c);
+    const version = await insertVersion({ reglas: rules, origen: 'solicitud', solicitudId: id, autor: who, motivo: solicitud.descripcion, autores }, c);
+    await addEvent(id, 'publicada', who, { numero: version.numero }, c);
+    return { numero: version.numero };
+  });
+}
