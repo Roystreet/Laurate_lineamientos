@@ -28,4 +28,8 @@ export async function migrate() {
   if(!versionColumns.length) await pool.query('ALTER TABLE versiones_documento ADD COLUMN nombre_original VARCHAR(255)');
   await pool.query('UPDATE versiones_documento v JOIN documentos d ON d.id=v.documento_id SET v.nombre_original=d.nombre_original WHERE v.nombre_original IS NULL');
   await pool.query("UPDATE requerimientos r SET documento_ficha_actual=(SELECT d.id FROM documentos d WHERE d.requerimiento_id=r.id AND d.clase='ficha' ORDER BY d.created_at DESC,d.id DESC LIMIT 1) WHERE documento_ficha_actual IS NULL");
+  const ruleColumn=await query("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=? AND TABLE_NAME='ejecuciones' AND COLUMN_NAME='reglas_version_id'",[config.mysql.database]);
+  if(!ruleColumn.length) await pool.query('ALTER TABLE ejecuciones ADD COLUMN reglas_version_id CHAR(36) NULL');
+  const { ensureInitialVersion } = await import('./config-ia/versions.js');
+  await ensureInitialVersion();
 }

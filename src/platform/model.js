@@ -6,6 +6,7 @@ import { enqueue } from './queue.js';
 import { config, publicConfig } from '../config/runtime.js';
 import { storagePath, storageKey, safeCode, safeLineamiento, digest } from './storage.js';
 import { ROOT } from '../config/paths.js';
+import { production } from './config-ia/versions.js';
 
 export async function requirements() {
   const rows = await query(`SELECT r.*,v.ficha,
@@ -99,7 +100,7 @@ export async function detach(docId, active, reqId) {
   const result = await query('UPDATE requerimiento_evidencias SET activa=? WHERE documento_id=? AND requerimiento_id=COALESCE(?,(SELECT requerimiento_id FROM documentos WHERE id=?))', [active,docId,reqId ?? null,docId]);
   if (!result.affectedRows) throw Object.assign(new Error('Evidencia no encontrada.'), { statusCode: 404 });
 }
-async function engineVersion(c) {
+export async function engineVersion(c) {
   const sources = {};
   async function walk(dir) {
     for (const item of await fs.readdir(dir, { withFileTypes: true })) {
@@ -142,7 +143,7 @@ export async function startRun(ids) {
       inputs.push({ id:req.id, codigo:req.codigo, version:req.version_actual, ficha:json(req.ficha), evidencias:docs });
     }
     const id=randomUUID(), snapshot={ requirements:inputs, catalog:catalog.map((r)=>({...r,ficha:json(r.ficha)})) };
-    await query('INSERT INTO ejecuciones(id,configuracion,motor_id,snapshot) VALUES (?,?,?,?)',[id,JSON.stringify(publicConfig()),await engineVersion(c),JSON.stringify(snapshot)],c);
+    await query('INSERT INTO ejecuciones(id,configuracion,motor_id,snapshot,reglas_version_id) VALUES (?,?,?,?,?)',[id,JSON.stringify(publicConfig()),await engineVersion(c),JSON.stringify(snapshot),(await production(c)).id],c);
     for (let i=0;i<inputs.length;i++) {
       const req=inputs[i];
       await query('INSERT INTO entradas_ejecucion(ejecucion_id,requerimiento_id,orden,version_requerimiento_id,evidencia) VALUES (?,?,?,?,?)',[id,req.id,i,req.version,JSON.stringify(req.evidencias)],c);
@@ -153,7 +154,7 @@ export async function startRun(ids) {
   });
 }
 export async function runs() {
-  const rows=await query(`SELECT e.id,e.estado,e.error,e.created_at,e.finished_at,
+  const rows=await query(`SELECT e.id,e.estado,e.error,e.created_at,e.finished_at,(SELECT v.numero FROM ia_versiones v WHERE v.id=e.reglas_version_id) reglas_version,
     (SELECT JSON_ARRAYAGG(i.requerimiento_id) FROM entradas_ejecucion i WHERE i.ejecucion_id=e.id) requirementIds,
     (SELECT COUNT(*) FROM entradas_ejecucion i WHERE i.ejecucion_id=e.id) requerimientos,
     (SELECT COUNT(*) FROM resultados_criterio r WHERE r.ejecucion_id=e.id) criterios,
@@ -162,7 +163,7 @@ export async function runs() {
   return rows.map(r=>({...r,requirementIds:json(r.requirementIds) ?? []}));
 }
 export async function runDetail(id) {
-  const [run] = await query('SELECT id,estado,error,configuracion,snapshot,created_at,finished_at FROM ejecuciones WHERE id=?',[id]);
+  const [run] = await query('SELECT e.id,e.estado,e.error,e.configuracion,e.snapshot,e.created_at,e.finished_at,v.numero reglas_version FROM ejecuciones e LEFT JOIN ia_versiones v ON v.id=e.reglas_version_id WHERE e.id=?',[id]);
   if (!run) throw Object.assign(new Error('Análisis no encontrado.'),{statusCode:404});
   const [tasks,results,reports] = await Promise.all([
     query('SELECT id,tipo,estado,intentos,error,payload FROM tareas_procesamiento WHERE ejecucion_id=? ORDER BY prioridad,created_at,id',[id]),

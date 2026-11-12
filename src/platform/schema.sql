@@ -87,3 +87,49 @@ CREATE TABLE IF NOT EXISTS reportes (
  nombre VARCHAR(255) NOT NULL, archivo_path TEXT NOT NULL, sha256 CHAR(64) NOT NULL,
  UNIQUE(ejecucion_id, nombre), FOREIGN KEY(ejecucion_id) REFERENCES ejecuciones(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE IF NOT EXISTS ia_versiones (
+ id CHAR(36) PRIMARY KEY, numero INT NOT NULL UNIQUE, reglas JSON NOT NULL, origen VARCHAR(16) NOT NULL,
+ solicitud_id CHAR(36), revertida_de INT, publicado_por VARCHAR(100) NOT NULL, motivo TEXT,
+ created_at TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP(3)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE IF NOT EXISTS ia_reglas (
+ numero INT AUTO_INCREMENT PRIMARY KEY, codigo VARCHAR(16) NOT NULL UNIQUE,
+ created_at TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP(3)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE IF NOT EXISTS ia_reglas_historial (
+ id CHAR(36) PRIMARY KEY, codigo VARCHAR(16) NOT NULL, version_id CHAR(36) NOT NULL, accion VARCHAR(16) NOT NULL,
+ antes JSON, despues JSON NOT NULL, autor VARCHAR(100) NOT NULL, motivo TEXT, solicitud_id CHAR(36),
+ created_at TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP(3), INDEX(codigo),
+ FOREIGN KEY (version_id) REFERENCES ia_versiones(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE IF NOT EXISTS ia_solicitudes (
+ id CHAR(36) PRIMARY KEY, numero INT AUTO_INCREMENT UNIQUE, autor VARCHAR(100) NOT NULL,
+ descripcion TEXT NOT NULL, esperado TEXT, ejecucion_id CHAR(36) NOT NULL, requerimiento_id CHAR(36) NOT NULL,
+ criterio_id INT NOT NULL, fila_orden INT, fila_copia JSON, estado VARCHAR(16) NOT NULL,
+ base_version_id CHAR(36) NOT NULL, cambios JSON NOT NULL, motivo_rechazo TEXT,
+ created_at TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP(3),
+ updated_at TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+ FOREIGN KEY (ejecucion_id) REFERENCES ejecuciones(id), FOREIGN KEY (requerimiento_id) REFERENCES requerimientos(id),
+ FOREIGN KEY (base_version_id) REFERENCES ia_versiones(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE IF NOT EXISTS ia_solicitud_eventos (
+ id CHAR(36) PRIMARY KEY, solicitud_id CHAR(36) NOT NULL, tipo VARCHAR(24) NOT NULL, autor VARCHAR(100) NOT NULL,
+ detalle JSON, created_at TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP(3),
+ FOREIGN KEY (solicitud_id) REFERENCES ia_solicitudes(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE IF NOT EXISTS ia_pruebas (
+ id CHAR(36) PRIMARY KEY, solicitud_id CHAR(36), autor VARCHAR(100) NOT NULL,
+ base_version_id CHAR(36) NOT NULL, comparar_version_id CHAR(36) NOT NULL,
+ reglas_comparacion JSON NOT NULL, reglas_borrador JSON NOT NULL, huella CHAR(64) NOT NULL,
+ exploratoria BOOLEAN NOT NULL, casos JSON NOT NULL, criterios JSON NOT NULL, apagadas JSON NOT NULL,
+ estado VARCHAR(16) NOT NULL DEFAULT 'queued', veredicto VARCHAR(16), revisor VARCHAR(100), comentario TEXT,
+ created_at TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP(3), finished_at TIMESTAMP(3) NULL,
+ FOREIGN KEY (solicitud_id) REFERENCES ia_solicitudes(id),
+ FOREIGN KEY (base_version_id) REFERENCES ia_versiones(id), FOREIGN KEY (comparar_version_id) REFERENCES ia_versiones(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE IF NOT EXISTS ia_pruebas_resultados (
+ id CHAR(36) PRIMARY KEY, prueba_id CHAR(36) NOT NULL, ejecucion_id CHAR(36) NOT NULL, requerimiento_id CHAR(36) NOT NULL,
+ criterio_id INT NOT NULL, lado VARCHAR(12) NOT NULL, origen VARCHAR(12) NOT NULL, estado_tecnico VARCHAR(24) NOT NULL,
+ filas JSON NOT NULL, UNIQUE(prueba_id, requerimiento_id, criterio_id, lado),
+ FOREIGN KEY (prueba_id) REFERENCES ia_pruebas(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

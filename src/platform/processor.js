@@ -12,32 +12,16 @@ import { callOpenAI } from '../llm/openai.client.js';
 import { parseLlmJsonObject } from '../llm/parse-json.js';
 import { buildPromptConvertirRequerimientosJson } from '../prompt/propmt-convertir-requerimientos-json/index.js';
 import { normalizeFicha } from '../steps/generar-json-requerimientos/index.js';
-import { buildContext, evaluarCriterio } from '../steps/2-procesar-requerimiento/index.js';
+import { evaluarCriterio } from '../steps/2-procesar-requerimiento/index.js';
+import { trackedLlm } from './llm-tracking.js';
+import { buildAnalysisInputs } from './analysis-inputs.js';
+import { versionById } from './config-ia/versions.js';
 import { planCriterios } from '../prompt/criterios/index.js';
 import { writeHallazgosExcel } from '../helpers/excel.helper.js';
 import { runStep3 } from '../steps/3-generar-excel-por-requerimiento/index.js';
 import { runStep4 } from '../steps/4-generar-matriz-total-lineamientos/index.js';
 import { runStep5 } from '../steps/5-consolidar-hallazgos/index.js';
 
-function trackedLlm(task, stage, llm, settings = config) {
-  return async (args) => {
-    const id = randomUUID(), start = Date.now();
-    const messages = { system:args.system, user:args.user,
-      images:(args.images ?? []).map((i)=>({sha256:digest(i.url),detail:i.detail})) };
-    await transaction(async(c)=>{
-      await assertLease(task,c);
-      await query('INSERT INTO llamadas_llm(id,tarea_id,etapa,modelo,mensajes) VALUES (?,?,?,?,?)',[id,task.id,stage,args.model,JSON.stringify(messages)],c);
-    });
-    try {
-      const response=await llm({...args,timeoutMs:settings.timeoutMs,maxAttempts:settings.maxAttempts});
-      await query('UPDATE llamadas_llm SET respuesta=?,uso=?,duracion_ms=? WHERE id=?',[response.rawText,JSON.stringify(response.usage ?? null),Date.now()-start,id]);
-      return response;
-    } catch(error) {
-      await query('UPDATE llamadas_llm SET error=?,duracion_ms=? WHERE id=?',[error.message,Date.now()-start,id]);
-      throw error;
-    }
-  };
-}
 
 export async function saveFicha(reqId, versionId, ficha, c, activate = true) {
   const id=randomUUID();
@@ -117,22 +101,13 @@ export async function saveResult(runId,reqId,result,c) {
 async function analyze(task,llm) {
   const [run]=await query('SELECT * FROM ejecuciones WHERE id=?',[task.ejecucion_id]);
   const snapshot=json(run.snapshot), settings={...config,...json(run.configuracion)};
-  const req=snapshot.requirements.find((r)=>r.id===task.payload.requirementId);
-  if(!req) throw new Error('Entrada congelada no encontrada.');
+  const {req,tipo,ctx,buildArgs,dryMeta}=buildAnalysisInputs(snapshot,task.payload.requirementId);
+  const rules=run.reglas_version_id?(await versionById(run.reglas_version_id)).reglas:[];
   await query("UPDATE ejecuciones SET estado='running' WHERE id=?",[run.id]);
-  const lineamientoIds=req.evidencias.map(d=>d.lineamiento);
-  const lineamientos=req.evidencias.map(d=>`### LINEAMIENTO: ${d.lineamiento}\n${d.markdown.trim()}`).join('\n\n---\n\n');
-  const {nombre_requerimiento,tipo,consideraciones,requerimientos_relacionados}=req.ficha;
-  const relacionados=requerimientos_relacionados.map((codigo)=>{
-    const related=snapshot.catalog.find(r=>r.codigo===codigo);
-    return {codigo,nombre_requerimiento:related?.ficha.nombre_requerimiento ?? `${codigo} (ficha no encontrada)`,consideraciones:related?.ficha.consideraciones ?? []};
-  });
-  const ctx=buildContext({codigo:req.codigo,requerimientoTexto:nombre_requerimiento,tipo,lineamientoIds});
-  const buildArgs={n_req:req.codigo,requerimiento:nombre_requerimiento,tipo,consideraciones,lineamientos,lineamientoIds,relacionados};
   const previous=await query("SELECT criterio_id FROM resultados_criterio WHERE ejecucion_id=? AND requerimiento_id=? AND estado_tecnico='complete'",[run.id,req.id]);
   const completed=new Set(previous.map(r=>r.criterio_id));
   await Promise.all(planCriterios(tipo).filter(c=>!completed.has(c.id)).map(async(criterio)=>{
-    const result=await evaluarCriterio(criterio,{dryRun:false,ctx,buildArgs,dryMeta:{consideraciones,lineamientoIds},
+    const result=await evaluarCriterio(criterio,{dryRun:false,ctx,buildArgs,dryMeta,rules,
       llm:trackedLlm(task,`criterio_${criterio.id}`,llm,settings),model:settings.analysisModel,reasoningEffort:settings.analysisEffort});
     await transaction(async(c)=>{await assertLease(task,c);await saveResult(run.id,req.id,result,c);});
   }));
