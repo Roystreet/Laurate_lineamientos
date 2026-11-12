@@ -1,15 +1,16 @@
+import { reportSource } from '../../helpers/excel.helper.js';
 import path from 'node:path';
 import ExcelJS from 'exceljs';
 import { PATHS } from '../../config/paths.js';
 import { listFiles, readFileText, ensureDir, pathExists } from '../../helpers/fs.helper.js';
 import { logger } from '../../helpers/logger.js';
 
-export async function runStep3() {
+export async function runStep3(flags = {}, { paths = PATHS } = {}) {
   logger.step('STEP 3 — Generar Excel por requerimiento');
 
-  const jsonDir = PATHS.mutable.requerimientosJson;
-  const linBase = PATHS.mutable.lineamientos;
-  const outBase = PATHS.matriz;
+  const jsonDir = paths.mutable.requerimientosJson;
+  const linBase = paths.mutable.lineamientos;
+  const outBase = paths.matriz;
 
   if (!(await pathExists(jsonDir))) {
     logger.error(`No existe ${jsonDir}. Ejecuta primero generate:formato_json_ficha_requerimientos.`);
@@ -38,13 +39,13 @@ export async function runStep3() {
       const id = path.basename(lin, '.md');
       const text = await readFileText(lin);
       const preview = text.replace(/\s+/g, ' ').slice(0, 300);
-      ws.addRow({ req: codigo, id, fuente: path.relative(PATHS.root, lin), preview });
+      ws.addRow({ req: codigo, id, fuente: reportSource(paths.root, lin), preview });
     }
 
     const outFile = path.join(outBase, `req_${codigo}.xlsx`);
     await wb.xlsx.writeFile(outFile);
     generados++;
-    logger.ok(`Excel req ${codigo} → ${path.relative(PATHS.root, outFile)} (${lins.length} filas)`);
+    logger.ok(`Excel req ${codigo} → ${path.relative(paths.root, outFile)} (${lins.length} filas)`);
   }
 
   logger.ok(`Step 3 finalizado: ${generados} excel(es).`);

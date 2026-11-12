@@ -1,3 +1,4 @@
+import { config } from '../../config/runtime.js';
 import path from 'node:path';
 import { PATHS } from '../../config/paths.js';
 import { listFiles, writeFileText, ensureDir, pathExists } from '../../helpers/fs.helper.js';
@@ -9,8 +10,8 @@ import { normalizeTipo } from '../../prompt/criterios/index.js';
 
 // El texto de las fichas viene desordenado (PDF a 2 columnas); reconstruir y extraer TODAS las
 // consideraciones es una tarea de razonamiento difícil → modelo full + razonamiento alto.
-const MODEL = 'gpt-5.4';
-const REASONING_EFFORT = 'high';
+const MODEL = config.fichaModel;
+const REASONING_EFFORT = config.fichaEffort;
 const CODIGO_RE = /(\d+(?:\.\d+){0,5})/;
 
 function inferirCodigo(file) {
@@ -19,7 +20,7 @@ function inferirCodigo(file) {
   return match ? match[1] : base;
 }
 
-function normalizeFicha(obj, { codigo }) {
+export function normalizeFicha(obj, { codigo }) {
   const nombre_requerimiento =
     typeof obj?.nombre_requerimiento === 'string' && obj.nombre_requerimiento.trim()
       ? obj.nombre_requerimiento.trim()

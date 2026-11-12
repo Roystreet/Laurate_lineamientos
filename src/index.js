@@ -36,8 +36,10 @@ const COMMANDS = {
 async function runPipeline(flags) {
   logger.step('PIPELINE COMPLETO');
   await runStep0(flags);
-  await runGenerarJsonRequerimientos(flags);
-  await runStep1(flags);
+  const fichas = await runGenerarJsonRequerimientos(flags);
+  if (!fichas.ok || fichas.totalErrores) throw new Error('No se pudieron preparar todas las fichas de requerimientos.');
+  const validacion = await runStep1(flags);
+  if (!validacion.ok) throw new Error('La validación falló. Corrige los documentos antes de analizar.');
   await runStep2(flags);
   await runStep3(flags);
   await runStep4(flags);

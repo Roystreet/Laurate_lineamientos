@@ -19,8 +19,16 @@ function cellToString(v) {
   return String(v);
 }
 
+// ExcelJS expands defined names into a cell matrix when assigning the model.
+// Text extraction uses cell values and cached formula results, never named ranges.
+// Discard names before that expansion while retaining the normal cell reader.
+class TextWorkbook extends ExcelJS.Workbook {
+  set model(value) { super.model = { ...value, definedNames: [] }; }
+  get model() { return super.model; }
+}
+
 export async function parseXlsx(file) {
-  const wb = new ExcelJS.Workbook();
+  const wb = new TextWorkbook();
   await wb.xlsx.readFile(file);
   const sheets = [];
   const lines = [];

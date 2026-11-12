@@ -1,3 +1,4 @@
+import { config } from '../../config/runtime.js';
 import path from 'node:path';
 import { PATHS } from '../../config/paths.js';
 import { listFiles, readFileText, pathExists } from '../../helpers/fs.helper.js';
@@ -9,8 +10,8 @@ import { planCriterios, normalizeTipo } from '../../prompt/criterios/index.js';
 // gpt-5.4-mini: modelo de razonamiento (400k contexto, 128k salida). NO se limita la salida
 // (sin max_output_tokens) para evitar respuestas acotadas; la "inteligencia" se ajusta vía
 // reasoning_effort. No acepta temperature.
-const MODEL = 'gpt-5.4-mini';
-const REASONING_EFFORT = 'medium';
+const MODEL = config.analysisModel;
+const REASONING_EFFORT = config.analysisEffort;
 // Heurístico de aviso: ~200k caracteres antes de arriesgar el contexto del modelo.
 const AVISO_CHARS = 200000;
 
@@ -32,7 +33,7 @@ function cell(v) {
 }
 
 /** Contexto fijo que se inyecta en cada fila (lo conocemos de forma autoritativa). */
-function buildContext({ codigo, requerimientoTexto, tipo, lineamientoIds }) {
+export function buildContext({ codigo, requerimientoTexto, tipo, lineamientoIds }) {
   return {
     n_req: codigo,
     requerimiento: requerimientoTexto,
@@ -63,7 +64,7 @@ function filaBase(criterioNombre, ctx, over = {}) {
 }
 
 /** Criterio 1 devuelve un OBJETO: matriz consideración × lineamiento + hallazgos generales. */
-function rowsFromC1(obj, criterioNombre, ctx) {
+export function rowsFromC1(obj, criterioNombre, ctx) {
   const rows = [];
   const consideraciones = Array.isArray(obj?.consideraciones) ? obj.consideraciones : [];
   for (const c of consideraciones) {
@@ -121,7 +122,7 @@ function rowsFromC1(obj, criterioNombre, ctx) {
 }
 
 /** Criterios 2-6 devuelven un ARRAY de hallazgos (uno por objeto). */
-function rowsFromGenerico(arr, criterioNombre, ctx) {
+export function rowsFromGenerico(arr, criterioNombre, ctx) {
   const rows = (Array.isArray(arr) ? arr : []).map((p) =>
     filaBase(criterioNombre, ctx, {
       lineamiento: cell(p?.lineamiento_afectado),
@@ -147,14 +148,14 @@ function rowsFromGenerico(arr, criterioNombre, ctx) {
       ];
 }
 
-const filaNoAplica = (nombre, ctx) =>
+export const filaNoAplica = (nombre, ctx) =>
   filaBase(nombre, ctx, {
     estado: 'No aplica',
     criterio_afectado: 'N/A',
     razonamiento_previo: `Criterio no aplicable para el tipo de requerimiento "${ctx.tipo_requerimiento}".`,
   });
 
-const filaError = (nombre, ctx, msg) =>
+export const filaError = (nombre, ctx, msg) =>
   filaBase(nombre, ctx, {
     estado: 'No cumple',
     tipo_hallazgo: 'Observación',
@@ -163,7 +164,7 @@ const filaError = (nombre, ctx, msg) =>
     hallazgo: 'ERROR: no fue posible generar hallazgos para este criterio.',
   });
 
-function filasDryRun(criterio, ctx, { consideraciones, lineamientoIds }) {
+export function filasDryRun(criterio, ctx, { consideraciones, lineamientoIds }) {
   if (criterio.key === KEY_C1) {
     const rows = [];
     const cons = consideraciones.length ? consideraciones : ['(sin consideraciones)'];
@@ -221,7 +222,7 @@ async function cargarRelacionados(codigos, jsonBase) {
 }
 
 /** Evalúa un criterio (o devuelve filas sintéticas si no aplica / dry-run / error). */
-async function evaluarCriterio(criterio, { dryRun, ctx, buildArgs, dryMeta }) {
+export async function evaluarCriterio(criterio, { dryRun, ctx, buildArgs, dryMeta, llm = callOpenAI, model = MODEL, reasoningEffort = REASONING_EFFORT }) {
   if (!criterio.aplica) {
     return { criterio, rows: [filaNoAplica(criterio.nombre, ctx)], llamado: false, error: false };
   }
@@ -230,11 +231,11 @@ async function evaluarCriterio(criterio, { dryRun, ctx, buildArgs, dryMeta }) {
   }
   try {
     const { system, user } = criterio.build(buildArgs);
-    const { rawText } = await callOpenAI({
+    const { rawText } = await llm({
       system,
       user,
-      model: MODEL,
-      reasoningEffort: REASONING_EFFORT,
+      model,
+      reasoningEffort,
     });
     const rows =
       criterio.key === KEY_C1
@@ -246,12 +247,12 @@ async function evaluarCriterio(criterio, { dryRun, ctx, buildArgs, dryMeta }) {
   }
 }
 
-export async function runStep2(flags = {}) {
+export async function runStep2(flags = {}, { paths = PATHS } = {}) {
   logger.step('STEP 2 — Procesar requerimiento (multi-criterio, LLM)');
 
-  const jsonBase = PATHS.mutable.requerimientosJson;
-  const linBase = PATHS.mutable.lineamientos;
-  const outBase = PATHS.inmutableHallazgos;
+  const jsonBase = paths.mutable.requerimientosJson;
+  const linBase = paths.mutable.lineamientos;
+  const outBase = paths.inmutableHallazgos;
 
   if (!(await pathExists(jsonBase))) {
     logger.error(`No existe ${jsonBase}. Ejecuta primero generate:formato_json_ficha_requerimientos.`);
@@ -297,14 +298,14 @@ export async function runStep2(flags = {}) {
         : [];
     } catch (err) {
       logger.warn(
-        `Requerimiento ${codigo}: no se pudo leer ${path.relative(PATHS.root, fichaFile)} — ${err.message}. Se omite.`
+        `Requerimiento ${codigo}: no se pudo leer ${path.relative(paths.root, fichaFile)} — ${err.message}. Se omite.`
       );
       continue;
     }
 
     const linDir = path.join(linBase, `req_${codigo}`);
     if (!(await pathExists(linDir))) {
-      logger.warn(`Requerimiento ${codigo}: no existe carpeta de lineamientos ${path.relative(PATHS.root, linDir)}. Se omite.`);
+      logger.warn(`Requerimiento ${codigo}: no existe carpeta de lineamientos ${path.relative(paths.root, linDir)}. Se omite.`);
       continue;
     }
 
@@ -379,7 +380,7 @@ export async function runStep2(flags = {}) {
     const outFile = path.join(outBase, codigo, `${codigo}.xlsx`);
     await writeHallazgosExcel(outFile, rowsAcumuladas);
     totalFilas += rowsAcumuladas.length;
-    logger.ok(`Excel hallazgos → ${path.relative(PATHS.root, outFile)} (${rowsAcumuladas.length} fila(s))`);
+    logger.ok(`Excel hallazgos → ${path.relative(paths.root, outFile)} (${rowsAcumuladas.length} fila(s))`);
   }
 
   logger.ok(

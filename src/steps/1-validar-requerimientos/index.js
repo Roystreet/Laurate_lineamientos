@@ -4,11 +4,11 @@ import { listFiles, readFileText, pathExists } from '../../helpers/fs.helper.js'
 import { logger } from '../../helpers/logger.js';
 import { TIPOS } from '../../prompt/criterios/index.js';
 
-export async function runStep1() {
+export async function runStep1(flags = {}, { paths = PATHS } = {}) {
   logger.step('STEP 1 — Validar fichas JSON de requerimientos');
 
-  const jsonDir = PATHS.mutable.requerimientosJson;
-  const linDir = PATHS.mutable.lineamientos;
+  const jsonDir = paths.mutable.requerimientosJson;
+  const linDir = paths.mutable.lineamientos;
 
   if (!(await pathExists(jsonDir))) {
     logger.error(`No existe ${jsonDir}. Ejecuta primero generate:formato_json_ficha_requerimientos.`);
@@ -25,7 +25,7 @@ export async function runStep1() {
 
   for (const fichaFile of fichas) {
     const codigo = path.basename(fichaFile, '.json');
-    const rel = path.relative(PATHS.root, fichaFile);
+    const rel = path.relative(paths.root, fichaFile);
 
     let ficha;
     try {

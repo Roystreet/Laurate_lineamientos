@@ -1,14 +1,15 @@
+import { reportSource } from '../../helpers/excel.helper.js';
 import path from 'node:path';
 import ExcelJS from 'exceljs';
 import { PATHS, codigoFromReqFolder } from '../../config/paths.js';
 import { listDirs, listFiles, readFileText, ensureDir, pathExists } from '../../helpers/fs.helper.js';
 import { logger } from '../../helpers/logger.js';
 
-export async function runStep4() {
+export async function runStep4(flags = {}, { paths = PATHS } = {}) {
   logger.step('STEP 4 — Generar matriz total de lineamientos');
 
-  const linBase = PATHS.mutable.lineamientos;
-  const outBase = PATHS.matriz;
+  const linBase = paths.mutable.lineamientos;
+  const outBase = paths.matriz;
 
   if (!(await pathExists(linBase))) {
     logger.error(`No existe ${linBase}. Ejecuta primero step:0.`);
@@ -35,13 +36,13 @@ export async function runStep4() {
       const id = path.basename(md, '.md');
       const text = await readFileText(md);
       const preview = text.replace(/\s+/g, ' ').slice(0, 300);
-      ws.addRow({ req: codigoReq, id, fuente: path.relative(PATHS.root, md), preview });
+      ws.addRow({ req: codigoReq, id, fuente: reportSource(paths.root, md), preview });
       total++;
     }
   }
 
   const outFile = path.join(outBase, 'matriz-total-lineamientos.xlsx');
   await wb.xlsx.writeFile(outFile);
-  logger.ok(`Matriz total → ${path.relative(PATHS.root, outFile)} (${total} filas)`);
+  logger.ok(`Matriz total → ${path.relative(paths.root, outFile)} (${total} filas)`);
   return { ok: true, total };
 }

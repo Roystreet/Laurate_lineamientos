@@ -1,0 +1,12 @@
+.env
+.env.*
+node_modules
+.git
+storage
+data
+datos_prueba
+*.zip
+web/dist
+test-results
+playwright-report
+tests

@@ -8,26 +8,19 @@ export const ROOT = path.resolve(__dirname, '..', '..');
 
 export const DATA = path.join(ROOT, 'data');
 
-export const PATHS = {
-  root: ROOT,
-  data: DATA,
-  inmutable: path.join(DATA, 'inmutable'),
-  inmutableHallazgos: path.join(DATA, 'inmutable', 'lineamiento-hallazgo'),
-  inmutableConsolidado: path.join(DATA, 'inmutable', 'consolidado'),
-  sinProcesar: {
-    base: path.join(DATA, 'data-sin-procesar'),
-    requerimientos: path.join(DATA, 'data-sin-procesar', 'requerimientos'),
-    lineamientos: path.join(DATA, 'data-sin-procesar', 'lineamientos_requerimiento'),
-  },
-  mutable: {
-    base: path.join(DATA, 'mutable'),
-    requerimientos: path.join(DATA, 'mutable', 'requerimientos'),
-    lineamientos: path.join(DATA, 'mutable', 'lineamientos'),
-    requerimientosJson: path.join(DATA, 'mutable', 'requerimientos-json'),
-  },
-  matriz: path.join(DATA, 'matriz-lineamientos'),
-  logs: path.join(ROOT, 'logs'),
-};
+export function createPaths(root = ROOT) {
+  const data = path.join(root, 'data');
+  return {
+    root, data,
+    inmutable: path.join(data, 'inmutable'),
+    inmutableHallazgos: path.join(data, 'inmutable', 'lineamiento-hallazgo'),
+    inmutableConsolidado: path.join(data, 'inmutable', 'consolidado'),
+    sinProcesar: { base: path.join(data, 'data-sin-procesar'), requerimientos: path.join(data, 'data-sin-procesar', 'requerimientos'), lineamientos: path.join(data, 'data-sin-procesar', 'lineamientos_requerimiento') },
+    mutable: { base: path.join(data, 'mutable'), requerimientos: path.join(data, 'mutable', 'requerimientos'), lineamientos: path.join(data, 'mutable', 'lineamientos'), requerimientosJson: path.join(data, 'mutable', 'requerimientos-json') },
+    matriz: path.join(data, 'matriz-lineamientos'), logs: path.join(root, 'logs'),
+  };
+}
+export const PATHS = createPaths();
 
 export const REQ_FOLDER_PREFIX = 'req_';
 

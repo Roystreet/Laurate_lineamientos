@@ -9,7 +9,7 @@ export async function runStep0(flags = {}) {
 
   const resultados = {};
 
-  if (solo === 'requerimientos') {
+  if (!solo || solo === 'requerimientos') {
     resultados.requerimientos = await convertirRequerimientos();
   }
   if (!solo || solo === 'lineamientos') {

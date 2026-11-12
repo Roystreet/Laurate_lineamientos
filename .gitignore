@@ -39,3 +39,9 @@ desktop.ini
 *.ntvs*
 *.njsproj
 *.sln
+
+# Plataforma
+storage/
+web/dist/
+test-results/
+playwright-report/

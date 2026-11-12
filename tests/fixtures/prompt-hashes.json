@@ -1,0 +1,14 @@
+{
+  "src/prompt/criterios/_base.js": "eb99c203f6e36785dbcaa5d7f9fb0a3c845868b1eed20faa58dc2b588fb0507d",
+  "src/prompt/criterios/c1-informacion-completa.js": "7a309a2180691a6ffae52e7154c3f2df3058938210c22ba6135c0398e1815f16",
+  "src/prompt/criterios/c2-coherencia.js": "d6219a3de9d3c997ef796e54e9092a5bc14aa70568415c2c51879dedb7631a96",
+  "src/prompt/criterios/c3-consistencia.js": "01f8e7dd822e81e4d14bf5a647e91d6e1e13edb5b03505a27ed275ea233c19e2",
+  "src/prompt/criterios/c4-sostenibilidad.js": "dcb54675d88420e369b9aa8a4fce273bcef62bd52dfdd967f7eb84f2d0eacdb3",
+  "src/prompt/criterios/c5-mejora-continua.js": "b0a8f4b46dcc1d3ccbdf4684d672783cd2abb2386add6100b0aaf449bb005138",
+  "src/prompt/criterios/c6-integracion.js": "7317d55a412b3f34e12297ceb6f65695844b39aec9312d076916e41a30d154b2",
+  "src/prompt/criterios/index.js": "ce511e178c2c0786c0c6b5242fc4fe48c4ef977950ab92023a52dd45f446bb7e",
+  "src/prompt/propmt-analizar-requerimientos/index.js": "e353a398e166d31242f3ef66d2cdf4e0f60cebf034139b9b40fee66456f8a1f9",
+  "src/prompt/propmt-analizar-requerimientos/template.js": "095df33e28e4f59e1c7a677f214a27db44902c019cc944f89ff2c2cdcc7806f3",
+  "src/prompt/propmt-convertir-requerimientos-json/index.js": "99f41aa2b19ac1b54d9f0e2e7fa031fdac0562015b1b13b2b9eeb72f532fe6d9",
+  "src/prompt/propmt-convertir-requerimientos-json/template.js": "395341b17890b7027c82d31baff558715669e242598fed3ad254289d1aab6357"
+}

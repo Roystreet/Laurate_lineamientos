@@ -1,0 +1,12 @@
+import { spawn } from 'node:child_process';
+import { ROOT } from '../src/config/paths.js';
+import { migrate, pool } from '../src/platform/db.js';
+await migrate();await pool.end();
+const dev=process.argv.includes('--dev');
+const commands=[['src/platform/server.js'],['src/platform/worker.js']];
+if(dev)commands.push(['node_modules/vite/bin/vite.js','--config','web/vite.config.ts']);
+const children=commands.map(args=>spawn(process.execPath,args,{cwd:ROOT,stdio:'inherit'}));
+let stopping=false;
+const stop=(code=0)=>{if(stopping)return;stopping=true;for(const child of children)child.kill('SIGTERM');process.exitCode=code;};
+for(const child of children)child.on('exit',code=>stop(code ?? 0));
+process.on('SIGINT',()=>stop());process.on('SIGTERM',()=>stop());

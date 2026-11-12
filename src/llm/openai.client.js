@@ -1,3 +1,4 @@
+import { config } from '../config/runtime.js';
 import OpenAI from 'openai';
 
 let _client = null;
@@ -10,7 +11,7 @@ function getClient() {
       'Falta OPENAI_API_KEY. Defínelo en .env (ver .env.example) y ejecuta los scripts con node --env-file=.env.'
     );
   }
-  _client = new OpenAI({ apiKey, timeout: 15 * 60 * 1000 });
+  _client = new OpenAI({ apiKey, timeout: config.timeoutMs, maxRetries: 0 });
   return _client;
 }
 
@@ -31,11 +32,11 @@ function esTransitorio(err) {
  * Usa streaming para mantener viva la conexión en generaciones largas; `finalResponse()`
  * devuelve el mismo objeto Response que `create()`.
  */
-async function createWithRetry(client, payload, maxAttempts = 3) {
+async function createWithRetry(client, payload, maxAttempts = config.maxAttempts, timeoutMs = config.timeoutMs) {
   let lastErr;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      return await client.responses.stream(payload).finalResponse();
+      return await client.responses.stream(payload, { timeout: timeoutMs }).finalResponse();
     } catch (err) {
       lastErr = err;
       if (attempt === maxAttempts || !esTransitorio(err)) throw err;
@@ -48,10 +49,13 @@ async function createWithRetry(client, payload, maxAttempts = 3) {
 export async function callOpenAI({
   system,
   user,
-  model = 'gpt-5.4-mini',
+  model = config.analysisModel,
   temperature,
   maxOutputTokens,
-  reasoningEffort = 'medium',
+  reasoningEffort = config.analysisEffort,
+  images = [],
+  timeoutMs = config.timeoutMs,
+  maxAttempts = config.maxAttempts,
 } = {}) {
   if (!user) throw new Error('callOpenAI: "user" es requerido.');
 
@@ -61,7 +65,7 @@ export async function callOpenAI({
   if (system) {
     input.push({ role: 'system', content: [{ type: 'input_text', text: system }] });
   }
-  input.push({ role: 'user', content: [{ type: 'input_text', text: user }] });
+  input.push({ role: 'user', content: [{ type: 'input_text', text: user }, ...images.map((image) => ({ type: 'input_image', image_url: image.url, detail: image.detail ?? config.ocrDetail }))] });
 
   const payload = { model, input };
 
@@ -75,7 +79,7 @@ export async function callOpenAI({
 
   if (maxOutputTokens) payload.max_output_tokens = maxOutputTokens;
 
-  const response = await createWithRetry(client, payload);
+  const response = await createWithRetry(client, payload, maxAttempts, timeoutMs);
 
   const rawText =
     response.output_text ??

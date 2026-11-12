@@ -1,0 +1,52 @@
+services:
+  mysql:
+    image: mysql:8.4
+    command: ["--max-connections=60", "--performance-schema=OFF", "--innodb-log-buffer-size=16777216"]
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-laureate_lineamientos}
+      MYSQL_USER: ${MYSQL_USER:-laureate}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Configura MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Configura MYSQL_ROOT_PASSWORD}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      default:
+        aliases:
+          - documental-mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "--silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    mem_limit: 512m
+    restart: unless-stopped
+  app:
+    build: .
+    image: documental-plataforma:20261111-xlsx
+    env_file: .env
+    environment:
+      MYSQL_HOST: documental-mysql
+      MYSQL_PORT: 3306
+      API_HOST: 0.0.0.0
+      API_PORT: 8008
+      STORAGE_DIR: /app/storage
+    ports:
+      - "127.0.0.1:${API_PORT:-8008}:8008"
+    volumes:
+      - ./storage:/app/storage
+    networks:
+      default: {}
+      proxy:
+        aliases:
+          - documental-app
+    depends_on:
+      mysql:
+        condition: service_healthy
+    mem_limit: 1g
+    restart: unless-stopped
+volumes:
+  mysql_data:
+networks:
+  proxy:
+    external: true
+    name: matriz-produccion_default

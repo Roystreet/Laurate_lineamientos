@@ -1,0 +1,4 @@
+documental-104-197-135-115.sslip.io {
+    encode zstd gzip
+    reverse_proxy documental-app:8008
+}

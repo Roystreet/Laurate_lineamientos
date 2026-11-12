@@ -89,3 +89,8 @@ export async function readHallazgosExcel(filePath) {
 
   return rows;
 }
+
+/** Logical source paths preserve the Windows separators in delivered inventories. */
+export function reportSource(root, file) {
+  return path.relative(root, file).split(path.sep).join('\\');
+}

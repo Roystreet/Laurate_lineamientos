@@ -181,7 +181,7 @@ function rellenarNoAplica(row, keys) {
   return out;
 }
 
-async function writeConsolidado(filePath, rows, maxGlobal) {
+export async function writeConsolidado(filePath, rows, maxGlobal) {
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('consolidado');
   ws.columns = buildColumns(maxGlobal);
@@ -200,11 +200,11 @@ async function writeConsolidado(filePath, rows, maxGlobal) {
   return rows.length;
 }
 
-export async function runStep5() {
+export async function runStep5(flags = {}, { paths = PATHS } = {}) {
   logger.step('STEP 5 — Consolidar hallazgos (matriz por lineamiento + hallazgos)');
 
-  const base = PATHS.inmutableHallazgos;
-  const outDir = PATHS.inmutableConsolidado;
+  const base = paths.inmutableHallazgos;
+  const outDir = paths.inmutableConsolidado;
 
   if (!(await pathExists(base))) {
     logger.error(`No existe ${base}. Ejecuta primero step:2.`);
@@ -224,7 +224,7 @@ export async function runStep5() {
       const rows = await readHallazgosExcel(xlsx);
       allRows.push(...rows);
       totalArchivos++;
-      logger.info(`Leído ${path.relative(PATHS.root, xlsx)} (${rows.length} fila(s))`);
+      logger.info(`Leído ${path.relative(paths.root, xlsx)} (${rows.length} fila(s))`);
     }
   }
 
@@ -264,7 +264,7 @@ export async function runStep5() {
   const totalFilas = await writeConsolidado(outFile, out, maxGlobal);
 
   logger.ok(
-    `Consolidado → ${path.relative(PATHS.root, outFile)} (${totalFilas} fila(s), ${maxGlobal} columna(s) de lineamiento, ${totalArchivos} archivo(s))`
+    `Consolidado → ${path.relative(paths.root, outFile)} (${totalFilas} fila(s), ${maxGlobal} columna(s) de lineamiento, ${totalArchivos} archivo(s))`
   );
   return { ok: true, totalArchivos, totalFilas, maxLineamientos: maxGlobal };
 }
