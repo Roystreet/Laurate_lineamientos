@@ -159,7 +159,7 @@ test('Config IA: regla sugerida por IA con choque y aprobación del ajuste',asyn
     'GET /api/config-ia/requests/s1/suggestion':()=>{if(sugerencia.estado==='generando')sugerencia=lista;return {sugerencia};},
     'POST /api/config-ia/suggestions/g1/approve':(body)=>{
       bodies.approve=body;
-      sugerencia={...lista,aprobaciones:[{opcion:'R-9',codigo:'R-9',editada:false,texto:'Regla base ajustada',criterios:[3],motivo:'Unificar',autor:'Ana',fecha:now}]};
+      sugerencia={...lista,estado:'aprobada',aprobaciones:[{opcion:'R-9',codigo:'R-9',editada:false,texto:'Regla base ajustada',criterios:[3],motivo:'Unificar',autor:'Ana',fecha:now}]};
       request.borrador={...request.borrador,cambios:[{op:'modificar',codigo:'R-9',texto:'Regla base ajustada',criterios:[3],antes:{texto:'Regla base',criterios:[3],activa:true},autor:'Ana',motivo:'Unificar',sugerencia_id:'g1'}]};
       return detail();
     },
@@ -194,6 +194,9 @@ test('Config IA: regla sugerida por IA con choque y aprobación del ajuste',asyn
   await expect(detailDialog).toContainText('Recomendada');
   await detailDialog.getByRole('button',{name:'Aprobar ajuste de R-9'}).click();
   await expect.poll(()=>bodies.approve).toEqual({autor:'Ana',opcion:'R-9'});
+  await expect(detailDialog.getByRole('button',{name:'Aprobar ajuste de R-9'})).toHaveCount(0);
+  await expect(detailDialog.getByRole('button',{name:'Aprobar',exact:true})).toBeVisible();
+  await expect(detailDialog.getByText('Aprobada',{exact:true}).first()).toBeVisible();
   await expect(detailDialog.locator('li',{hasText:'R-9'}).filter({hasText:'Sugerida por IA'}).first()).toBeVisible();
 
   await detailDialog.getByLabel('Indicación para la IA (opcional)').fill('más específica');

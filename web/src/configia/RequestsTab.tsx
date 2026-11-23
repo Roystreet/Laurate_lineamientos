@@ -8,7 +8,7 @@ import {DraftEditor} from './DraftEditor';
 import {SuggestionCard} from './SuggestionCard';
 
 export const StateBadge=({estado}:{estado:string})=><span className={'status cia-'+estado}>{requestStateLabels[estado] ?? estado}</span>;
-const eventLabels:Record<string,string>={creada:'Creada',borrador_guardado:'Borrador guardado',prueba_creada:'Prueba ejecutada',veredicto:'Veredicto registrado',publicada:'Publicada',rechazada:'Rechazada'};
+const eventLabels:Record<string,string>={creada:'Creada',borrador_guardado:'Borrador guardado',prueba_creada:'Prueba ejecutada',veredicto:'Veredicto registrado',publicada:'Publicada',rechazada:'Rechazada',sugerencia_creada:'Sugerencia de IA pedida',sugerencia_aprobada:'Sugerencia aprobada',sugerencia_descartada:'Sugerencia descartada'};
 
 export function FindingCard({row}:{row:FindingRow|null}){
   if(!row)return <div className="cia-finding missing"><strong>Falta un hallazgo</strong><p>La IA no detectó algo que debía detectar en este criterio.</p></div>;
@@ -26,7 +26,8 @@ function NewRequest({onCreated,onClose,onError}:{onCreated:(id:string)=>void;onC
     <AuthorField value={autor} onChange={setAutor}/>
     <HallazgoPicker value={finding} onChange={setFinding} onError={onError}/>
     <label className="cia-field">¿Qué está mal?<textarea value={descripcion} onChange={e=>setDescripcion(e.target.value)} placeholder="Describe por qué el resultado no es correcto."/></label>
-    <label className="cia-field">¿Qué esperabas?<textarea value={esperado} onChange={e=>setEsperado(e.target.value)} placeholder="Cómo debería haberlo evaluado la IA."/><p className="muted">La IA usará esto para sugerir la regla.</p></label>
+    <label className="cia-field">¿Qué esperabas?<textarea aria-describedby="esperado-hint" value={esperado} onChange={e=>setEsperado(e.target.value)} placeholder="Cómo debería haberlo evaluado la IA."/></label>
+    <p id="esperado-hint" className="muted">La IA usará esto para sugerir la regla.</p>
     <button className="primary" disabled={busy||!autor.trim()||!descripcion.trim()||!findingReady(finding)} onClick={()=>void create()}>Crear solicitud</button>
   </div></Modal>;
 }
@@ -60,7 +61,7 @@ export function RequestDetailModal({id,onClose,onOpenPlayground,onChanged,onErro
     {!closed?<AuthorField value={autor} onChange={setAutor}/>:null}
     {sugerencia&&sugerencia.estado!=='descartada'?<SuggestionCard value={sugerencia} closed={closed} draftDirty={dirty} autor={autor} onRequest={suggest}
       onApprove={async body=>{try{afterSuggestion(await post<RequestDetail>(`/config-ia/suggestions/${sugerencia.id}/approve`,body));}catch(e){onError((e as Error).message);}}}
-      onDiscard={async()=>{try{afterSuggestion(await post<RequestDetail>(`/config-ia/suggestions/${sugerencia.id}/discard`,{autor}));}catch(e){onError((e as Error).message);}}}/>:null}
+      onDiscard={async()=>{try{const d=await post<RequestDetail>(`/config-ia/suggestions/${sugerencia.id}/discard`,{autor});setSugerencia(d.sugerencia ?? null);onChanged();}catch(e){onError((e as Error).message);}}}/>:null}
     <DraftEditor detail={detail} autor={autor} onSaved={d=>{setDetail(d);onChanged();}} onError={onError} onSuggest={()=>void suggest()} suggesting={generating} onDirtyChange={setDirty}/>
     {detail.pruebas.length?<div><h4>Pruebas</h4><ul className="cia-rule-list">{detail.pruebas.map(t=><li key={t.id}>{formatDate(t.created_at)} · <span className="status">{t.estado==='complete'?'Completada':t.estado==='partial'?'Parcial':'En curso'}</span>{t.exploratoria?<span className="type-tag">Exploratoria</span>:null}{t.veredicto?<StateBadge estado={t.veredicto}/>:null}{t.revisor?` ${t.revisor}`:''}{t.comentario?` — ${t.comentario}`:''}</li>)}</ul></div>:null}
     {!closed?<div className="cia-actions">

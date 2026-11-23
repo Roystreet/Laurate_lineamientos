@@ -21,7 +21,7 @@ export function SuggestionCard({value,closed,draftDirty,autor,onRequest,onApprov
   const run=async(fn:()=>Promise<void>)=>{setBusy(true);try{await fn();}finally{setBusy(false);}};
   const proposal=value.propuesta;
   const approved=(opcion:string)=>value.aprobaciones.some(a=>a.opcion===opcion);
-  const canApprove=value.estado==='lista'&&!value.desactualizada&&!closed;
+  const canApprove=['lista','aprobada'].includes(value.estado)&&!value.desactualizada&&!closed;
   const blocked=busy||draftDirty||!autor.trim();
   const approve=(body:Omit<ApproveBody,'autor'>)=>run(async()=>{await onApprove({autor,...body});setForm(null);});
   const toApprove=(c:Clash)=>c.tipo==='contradice'&&c.ajuste&&!approved(c.codigo)?c:null;
