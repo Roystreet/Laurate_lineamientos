@@ -7,7 +7,7 @@ import { config } from '../../src/config/runtime.js';
 import { production, insertVersion, allocateRuleCode, listVersions, ruleHistory, republish, listRules } from '../../src/platform/config-ia/versions.js';
 import { casesFor, createRequest, requestDetail, saveDraft, rejectRequest, listRequests, publishRequest, loadRequest } from '../../src/platform/config-ia/requests.js';
 import { createTest, testDetail, recordVerdict } from '../../src/platform/config-ia/playground.js';
-import { startSuggestion, latestSuggestion, knownRules } from '../../src/platform/config-ia/suggestions.js';
+import { startSuggestion, latestSuggestion, knownRules, approveSuggestion, discardSuggestion } from '../../src/platform/config-ia/suggestions.js';
 import { INVALID_SUGGESTION } from '../../src/config-ia/suggestion.js';
 import { claim, settle } from '../../src/platform/queue.js';
 import { processTask } from '../../src/platform/processor.js';
@@ -326,6 +326,8 @@ test('playground: re-ejecutar una tarea borra el veredicto anterior', async () =
 
 // ---- Regla sugerida por IA ----
 const deferred = () => { let resolve; const promise = new Promise((r) => { resolve = r; }); return { promise, resolve }; };
+// Fake suggestion model that answers only once `gate` resolves.
+const held = (gate) => async () => { await gate.promise; return { rawText: JSON.stringify(plainRaw), usage: null }; };
 const taskCount = async () => Number((await query('SELECT COUNT(*) n FROM tareas_procesamiento'))[0].n);
 const suggestionRow = async (id) => (await query('SELECT * FROM ia_sugerencias WHERE id=?', [id]))[0];
 const requestFor = ({ reqId, runId }, extra = {}) => createRequest({ autor: 'Luis', descripcion: 'Exige firma física', esperado: 'Validar por pie de página', ejecucionId: runId, requerimientoId: reqId, criterioId: 2, filaOrden: 0, ...extra });
@@ -428,6 +430,7 @@ test('sugerencias: JSON envuelto en markdown queda lista', async () => {
 
 test('sugerencias: respuesta inválida o IA caída → error, la solicitud existe', async (t) => {
   const s = await requestFor(await seedAnalyzed(app, '7.7.4', fakeLlm()));
+  const logged = t.mock.method(console, 'error', () => {});
   let { id, done } = await startSuggestion(s.id, { autor: 'Ana' }, fakeSuggest('no es json'));
   await done;
   let v = await latestSuggestion(s.id);
@@ -436,15 +439,18 @@ test('sugerencias: respuesta inválida o IA caída → error, la solicitud exist
   assert.equal(v.error, INVALID_SUGGESTION);
   assert.equal(v.propuesta, null);
   assert.equal((await suggestionRow(id)).respuesta, 'no es json');
+  // An unexpected failure (here, broken JSON) is logged; a well-formed but invalid suggestion is not.
+  assert.equal(logged.mock.callCount(), 1);
+  assert.match(logged.mock.calls[0].arguments.join(' '), new RegExp(`^Sugerencia ${id}: .*no se pudo parsear JSON`));
 
   ({ id, done } = await startSuggestion(s.id, { autor: 'Ana' }, fakeSuggest({ entendimiento: 'x', regla: { cuando: 'algo', criterios: [2] } })));
   await done;
   v = await latestSuggestion(s.id);
   assert.equal(v.estado, 'error');
   assert.equal(v.error, INVALID_SUGGESTION);
+  assert.equal(logged.mock.callCount(), 1);
 
   // The model fails: generic message stored, detail logged without the API key.
-  const logged = t.mock.method(console, 'error', () => {});
   const key = process.env.OPENAI_API_KEY;
   process.env.OPENAI_API_KEY = 'sk-prueba-secreta';
   try {
@@ -460,14 +466,13 @@ test('sugerencias: respuesta inválida o IA caída → error, la solicitud exist
   const row = await suggestionRow(id);
   assert.equal(row.respuesta, null);
   assert.ok(!JSON.stringify(row).includes('sk-prueba-secreta'));
-  assert.equal(logged.mock.callCount(), 1);
-  assert.ok(!logged.mock.calls[0].arguments.join(' ').includes('sk-prueba-secreta'));
+  assert.equal(logged.mock.callCount(), 2);
+  assert.ok(!logged.mock.calls[1].arguments.join(' ').includes('sk-prueba-secreta'));
   assert.equal((await requestDetail(s.id)).estado, 'pendiente');
 });
 
 test('sugerencias: pedir otra reemplaza, no hay dos a la vez y una respuesta tardía no revive', async () => {
   const s = await requestFor(await seedAnalyzed(app, '7.7.5', fakeLlm()));
-  const held = (gate) => async () => { await gate.promise; return { rawText: JSON.stringify(plainRaw), usage: null }; };
   const gateA = deferred();
   const A = await startSuggestion(s.id, { autor: 'Ana' }, held(gateA));
   try {
@@ -582,4 +587,197 @@ test('API: crear solicitud arranca la sugerencia', async (t) => {
     assert.equal(sug.estado, 'error');
     assert.equal(logged.mock.callCount(), 1);
   } finally { await app3.close(); }
+});
+
+test('sugerencias: una regla que producción ya no tiene toma los criterios de su versión de referencia', async () => {
+  const seeded = await seedAnalyzed(app, '7.8.9', fakeLlm());
+  const codigo = await publishedRule('Regla que se retira', [6]);
+  const s = await requestFor(seeded), other = await requestFor(seeded);
+  await saveDraft(other.id, { autor: 'Ana', cambios: [{ op: 'modificar', codigo, texto: 'Editada en otra solicitud', motivo: 'm', antes: { texto: 'Regla que se retira', criterios: [6], activa: true } }] });
+  // Production drops the rule (as a reversion to an older version does).
+  await publishRules((await production()).reglas.filter((r) => r.codigo !== codigo));
+  const known = await knownRules(await loadRequest(s.id));
+  assert.deepEqual(known.filter((k) => k.codigo === codigo).map((k) => [k.origen, k.texto, k.criterios]), [['otra_solicitud', 'Editada en otra solicitud', [6]]]);
+});
+
+test('sugerencias: dos solicitudes nuevas piden sugerencia a la vez sin bloquearse', async () => {
+  const a = await requestFor(await seedAnalyzed(app, '7.8.7', fakeLlm()));
+  const b = await requestFor(await seedAnalyzed(app, '7.8.8', fakeLlm()));
+  const gate = deferred();
+  const started = await Promise.allSettled([a, b].map((s) => startSuggestion(s.id, { autor: 'Ana' }, held(gate))));
+  try {
+    assert.deepEqual(started.map((r) => r.reason?.message ?? r.status), ['fulfilled', 'fulfilled']);
+    for (const { value } of started) assert.equal((await suggestionRow(value.id)).estado, 'generando');
+  } finally {
+    gate.resolve();
+    await Promise.all(started.filter((r) => r.status === 'fulfilled').map((r) => r.value.done));
+  }
+});
+
+// ---- Aprobar y descartar sugerencias ----
+const postApi = (url, payload) => app.inject({ method: 'POST', url, payload });
+/** Generates a suggestion for request `s` with a fake model answering `raw` and waits until it is saved. */
+async function suggest(s, raw = plainRaw) {
+  const { id, done } = await startSuggestion(s.id, { autor: 'Ana' }, fakeSuggest(raw));
+  await done;
+  return id;
+}
+const plainMotivo = plainRaw.regla.motivo;
+
+test('aprobar: regla nueva y ajuste de producción entran al borrador con sugerencia_id', async () => {
+  const llm = fakeLlm();
+  const seeded = await seedAnalyzed(app, '7.8.1', llm);
+  const codigo = await publishedRule('No exigir firmas');
+  const s = await requestFor(seeded);
+  const id = await suggest(s, withClash(codigo));
+
+  let d = await approveSuggestion(id, { autor: 'Marta', opcion: 'regla_nueva' });
+  assert.equal(d.estado, 'en_prueba');
+  const nueva = d.borrador.cambios[0].codigo;
+  assert.match(nueva, /^R-\d+$/);
+  assert.deepEqual(d.borrador.cambios, [{ op: 'crear', codigo: nueva, texto: plainText, criterios: [2], autor: 'Marta', motivo: plainMotivo, sugerencia_id: id }]);
+  assert.equal(d.sugerencia.estado, 'aprobada');
+  const { fecha, ...aprobacion } = d.sugerencia.aprobaciones[0];
+  assert.ok(!Number.isNaN(Date.parse(fecha)));
+  assert.deepEqual(aprobacion, { opcion: 'regla_nueva', codigo: nueva, editada: false, texto: plainText, criterios: [2], motivo: plainMotivo, autor: 'Marta' });
+  assert.deepEqual(d.eventos.filter((e) => e.tipo === 'sugerencia_aprobada').map((e) => [e.autor, e.detalle]), [['Marta', { sugerencia: id, opcion: 'regla_nueva', editada: false }]]);
+
+  // The adjustment of the production rule, edited, through the API.
+  const r = await postApi(`/api/config-ia/suggestions/${id}/approve`, { autor: 'Marta', opcion: codigo, texto: '  Texto editado del ajuste ' });
+  assert.equal(r.statusCode, 200);
+  d = r.json();
+  assert.equal(d.borrador.cambios.length, 2);
+  assert.deepEqual(d.borrador.cambios[1], {
+    op: 'modificar', codigo, texto: 'Texto editado del ajuste', criterios: [2], autor: 'Marta', motivo: 'Incluye lo pedido.', sugerencia_id: id,
+    antes: { texto: 'No exigir firmas', criterios: [2], activa: true },
+  });
+  assert.deepEqual(d.borrador.conflictos, []);
+  assert.equal(d.borrador.reglas.find((x) => x.codigo === codigo).texto, 'Texto editado del ajuste');
+  assert.deepEqual(d.sugerencia.aprobaciones.map((a) => [a.opcion, a.codigo, a.editada, a.texto]), [['regla_nueva', nueva, false, plainText], [codigo, codigo, true, 'Texto editado del ajuste']]);
+  assert.equal(d.eventos.filter((e) => e.tipo === 'sugerencia_aprobada').at(-1).detalle.editada, true);
+
+  // The Playground tests the approved draft as it does today.
+  const t = await createTest({ solicitudId: s.id, autor: 'Ana', casos: [{ ejecucionId: seeded.runId, requerimientoId: seeded.reqId }] });
+  await drain(llm);
+  const tested = await testDetail(t.id);
+  assert.equal(tested.estado, 'complete');
+  assert.equal(tested.exploratoria, false);
+  assert.deepEqual(tested.criterios, [2]);
+});
+
+test('aprobar: ajuste de una regla de esta solicitud la reemplaza en el borrador', async () => {
+  const s = await requestFor(await seedAnalyzed(app, '7.8.2', fakeLlm()));
+  const first = await suggest(s);
+  const nueva = (await approveSuggestion(first, { autor: 'Ana', opcion: 'regla_nueva' })).borrador.cambios[0].codigo;
+  // After "No funcionó", the next suggestion proposes replacing the rule this request already has.
+  const ajuste = { texto: 'Cuando el plan no tenga firma física, valida vigencia y versión por el pie de página.', criterios: [2, 3], motivo: 'La anterior no bastó.' };
+  const second = await suggest(s, { ...plainRaw, recomendacion: nueva, choques: [{ codigo: nueva, origen: 'esta_solicitud', tipo: 'duplica', explicacion: 'Es la regla aprobada antes.', ajuste }] });
+  assert.equal((await latestSuggestion(s.id)).propuesta.choques[0].origen, 'esta_solicitud');
+  const d = await approveSuggestion(second, { autor: 'Luis', opcion: nueva, texto: ` ${ajuste.texto} `, criterios: [3, 2] });
+  assert.deepEqual(d.borrador.cambios, [{ op: 'crear', codigo: nueva, ...ajuste, autor: 'Luis', sugerencia_id: second }]);
+  // The same content with other spacing or order is not an edit.
+  assert.deepEqual(d.sugerencia.aprobaciones.map((a) => [a.opcion, a.codigo, a.editada]), [[nueva, nueva, false]]);
+  assert.equal((await suggestionRow(first)).estado, 'reemplazada');
+});
+
+test('aprobar: misma opción dos veces → 409 y un solo cambio', async () => {
+  const s = await requestFor(await seedAnalyzed(app, '7.8.3', fakeLlm()));
+  const id = await suggest(s);
+  // Two clicks at once: the request lock serializes them and the second finds the option approved.
+  const both = await Promise.allSettled([1, 2].map(() => approveSuggestion(id, { autor: 'Ana', opcion: 'regla_nueva' })));
+  assert.equal(both.filter((r) => r.status === 'fulfilled').length, 1);
+  const { reason } = both.find((r) => r.status === 'rejected');
+  assert.deepEqual([reason.statusCode, reason.message], [409, 'Esta opción ya se aprobó.']);
+  await assert.rejects(approveSuggestion(id, { autor: 'Ana', opcion: 'regla_nueva' }), (e) => e.statusCode === 409 && e.message === 'Esta opción ya se aprobó.');
+  const d = await requestDetail(s.id);
+  assert.equal(d.borrador.cambios.length, 1);
+  assert.equal(d.sugerencia.aprobaciones.length, 1);
+  assert.equal(d.eventos.filter((e) => e.tipo === 'sugerencia_aprobada').length, 1);
+});
+
+test('aprobar: producción cambió → 409 y borrador intacto', async () => {
+  const s = await requestFor(await seedAnalyzed(app, '7.8.4', fakeLlm()));
+  const id = await suggest(s);
+  const before = (await saveDraft(s.id, { autor: 'Ana', cambios: [{ op: 'crear', texto: 'Regla escrita a mano', criterios: [2], motivo: 'm' }] })).borrador.cambios;
+  await publishRules((await production()).reglas);
+  await assert.rejects(approveSuggestion(id, { autor: 'Ana', opcion: 'regla_nueva' }), (e) => e.statusCode === 409 && e.message === 'Producción cambió; pide otra sugerencia.');
+  const d = await requestDetail(s.id);
+  assert.deepEqual(d.borrador.cambios, before);
+  assert.equal(d.sugerencia.estado, 'lista');
+  assert.deepEqual(d.sugerencia.aprobaciones, []);
+  assert.equal((await latestSuggestion(s.id)).desactualizada, true);
+});
+
+test('aprobar/descartar: estados no válidos', async () => {
+  const seeded = await seedAnalyzed(app, '7.8.5', fakeLlm());
+  const s = await requestFor(seeded);
+  const approve = (id, body = {}) => approveSuggestion(id, { autor: 'Ana', opcion: 'regla_nueva', ...body });
+  const discard = (id) => discardSuggestion(id, { autor: 'Ana' });
+  const conflict = (message) => (e) => e.statusCode === 409 && e.message === message;
+  let id = await suggest(s);
+  await assert.rejects(approve(id, { opcion: 'R-999999' }), (e) => e.statusCode === 400 && e.message === 'Opción no reconocida.');
+  await assert.rejects(approve(id, { autor: ' ' }), (e) => e.statusCode === 400);
+  await assert.rejects(approve(id, { texto: ' ' }), (e) => e.statusCode === 400 && e.message === 'El texto de la regla debe tener entre 1 y 2000 caracteres.');
+  for (const action of ['approve', 'discard']) {
+    const r = await postApi(`/api/config-ia/suggestions/no-existe/${action}`, { autor: 'Ana', opcion: 'regla_nueva' });
+    assert.deepEqual([r.statusCode, r.json().error], [404, 'Sugerencia no encontrada.']);
+  }
+
+  // A ready suggestion is discarded through the API; it can no longer be approved.
+  const r = await postApi(`/api/config-ia/suggestions/${id}/discard`, { autor: 'Luis' });
+  assert.equal(r.statusCode, 200);
+  assert.equal(r.json().sugerencia.estado, 'descartada');
+  assert.deepEqual(r.json().eventos.filter((e) => e.tipo === 'sugerencia_descartada').map((e) => [e.autor, e.detalle]), [['Luis', { sugerencia: id }]]);
+  await assert.rejects(approve(id), conflict('Esta sugerencia ya no se puede aprobar.'));
+  await assert.rejects(discard(id), conflict('Esta sugerencia ya no se puede descartar.'));
+  assert.deepEqual((await requestDetail(s.id)).borrador.cambios, []);
+
+  // An approved suggestion can no longer be discarded.
+  id = await suggest(s);
+  await approve(id);
+  await assert.rejects(discard(id), conflict('Esta sugerencia ya no se puede descartar.'));
+
+  // One still generating cannot be approved but can be discarded; its late answer does not bring it back.
+  const gate = deferred();
+  const pending = await startSuggestion(s.id, { autor: 'Ana' }, held(gate));
+  try {
+    await assert.rejects(approve(pending.id), conflict('Esta sugerencia ya no se puede aprobar.'));
+    assert.equal((await discard(pending.id)).sugerencia.estado, 'descartada');
+  } finally { gate.resolve(); await pending.done; }
+  assert.equal((await suggestionRow(pending.id)).estado, 'descartada');
+
+  // One that failed cannot be approved but can be discarded.
+  id = await suggest(s, { entendimiento: 'x', regla: { cuando: 'algo', criterios: [2] } });
+  await assert.rejects(approve(id), conflict('Esta sugerencia ya no se puede aprobar.'));
+  assert.equal((await discard(id)).sugerencia.estado, 'descartada');
+
+  // A closed request accepts neither.
+  const closed = await requestFor(seeded);
+  id = await suggest(closed);
+  await rejectRequest(closed.id, { autor: 'Ana', motivo: 'No aplica' });
+  await assert.rejects(approve(id), conflict('La solicitud ya está cerrada.'));
+  await assert.rejects(discard(id), conflict('La solicitud ya está cerrada.'));
+  assert.equal((await suggestionRow(id)).estado, 'lista');
+});
+
+test('publicar: el historial de la regla guarda la sugerencia de origen', async () => {
+  const llm = fakeLlm();
+  const seeded = await seedAnalyzed(app, '7.8.6', llm);
+  const s = await requestFor(seeded);
+  const id = await suggest(s);
+  let d = await approveSuggestion(id, { autor: 'Marta', opcion: 'regla_nueva' });
+  const nueva = d.borrador.cambios[0].codigo;
+  // Saving the draft from the editor keeps where the approved rule came from.
+  d = await saveDraft(s.id, { autor: 'Ana', cambios: [...d.borrador.cambios, { op: 'crear', texto: 'Regla escrita a mano', criterios: [2], motivo: 'm' }] });
+  assert.equal(d.borrador.cambios[0].sugerencia_id, id);
+  const manual = d.borrador.cambios[1].codigo;
+  const t = await createTest({ solicitudId: s.id, autor: 'Ana', casos: [{ ejecucionId: seeded.runId, requerimientoId: seeded.reqId }] });
+  await drain(llm);
+  await recordVerdict(t.id, { revisor: 'Luis', veredicto: 'funciono' });
+  await publishRequest(s.id, { autor: 'Luis' });
+
+  const [h] = await ruleHistory(nueva);
+  assert.deepEqual([h.accion, h.autor, h.sugerencia_id], ['agregada', 'Marta', id]);
+  assert.equal((await ruleHistory(manual))[0].sugerencia_id, null);
+  assert.equal((await app.inject(`/api/config-ia/rules/${nueva}/history`)).json()[0].sugerencia_id, id);
 });

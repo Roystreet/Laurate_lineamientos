@@ -44,8 +44,8 @@ export async function insertVersion({ reglas, origen, solicitudId = null, revert
     [id, numero, JSON.stringify(reglas), origen, solicitudId, revertidaDe, autor, motivo], c);
   for (const d of diffRules(prev.reglas, reglas)) {
     const who = autores[d.codigo] ?? {};
-    await query('INSERT INTO ia_reglas_historial(id,codigo,version_id,accion,antes,despues,autor,motivo,solicitud_id) VALUES (?,?,?,?,?,?,?,?,?)',
-      [randomUUID(), d.codigo, id, d.accion, d.antes ? JSON.stringify(d.antes) : null, JSON.stringify(d.despues), who.autor ?? autor, who.motivo || motivo, solicitudId], c);
+    await query('INSERT INTO ia_reglas_historial(id,codigo,version_id,accion,antes,despues,autor,motivo,solicitud_id,sugerencia_id) VALUES (?,?,?,?,?,?,?,?,?,?)',
+      [randomUUID(), d.codigo, id, d.accion, d.antes ? JSON.stringify(d.antes) : null, JSON.stringify(d.despues), who.autor ?? autor, who.motivo || motivo, solicitudId, who.sugerencia_id ?? null], c);
   }
   await query("UPDATE ia_solicitudes SET base_version_id=? WHERE estado NOT IN ('publicada','rechazada')", [id], c);
   return { id, numero };
@@ -104,7 +104,7 @@ export async function listRules({ criterio, estado, q } = {}) {
 }
 
 export async function ruleHistory(codigo) {
-  const rows = await query(`SELECT h.accion,h.antes,h.despues,h.autor,h.motivo,h.created_at,v.numero version_numero,s.numero solicitud_numero
+  const rows = await query(`SELECT h.accion,h.antes,h.despues,h.autor,h.motivo,h.sugerencia_id,h.created_at,v.numero version_numero,s.numero solicitud_numero
     FROM ia_reglas_historial h JOIN ia_versiones v ON v.id=h.version_id LEFT JOIN ia_solicitudes s ON s.id=h.solicitud_id
     WHERE h.codigo=? ORDER BY v.numero DESC`, [codigo]);
   return rows.map((r) => ({ ...r, antes: r.antes ? json(r.antes) : null, despues: json(r.despues) }));

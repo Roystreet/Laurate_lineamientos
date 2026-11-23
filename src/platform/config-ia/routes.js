@@ -19,12 +19,14 @@ export function registerConfigIaRoutes(app, { llm = callOpenAI } = {}) {
     let sugerenciaId = null;
     // Si la sugerencia no puede iniciarse, la solicitud igual queda creada.
     try { sugerenciaId = (await suggestions.startSuggestion(created.id, { autor: req.body?.autor }, llm)).id; }
-    catch (error) { console.error(`Solicitud ${created.numero}: no se pudo iniciar la sugerencia (${error.message})`); }
+    catch (error) { console.error(`Solicitud ${created.numero}: no se pudo iniciar la sugerencia (${suggestions.hideSecrets(error.message)})`); }
     return reply.code(201).send({ ...created, sugerenciaId });
   });
   app.get(`${base}/requests/:id`, (req) => requests.requestDetail(req.params.id));
   app.post(`${base}/requests/:id/suggestions`, async (req, reply) => reply.code(202).send({ id: (await suggestions.startSuggestion(req.params.id, req.body ?? {}, llm)).id }));
   app.get(`${base}/requests/:id/suggestion`, async (req) => ({ sugerencia: await suggestions.latestSuggestion(req.params.id) }));
+  app.post(`${base}/suggestions/:id/approve`, (req) => suggestions.approveSuggestion(req.params.id, req.body ?? {}));
+  app.post(`${base}/suggestions/:id/discard`, (req) => suggestions.discardSuggestion(req.params.id, req.body ?? {}));
   app.put(`${base}/requests/:id/draft`, (req) => requests.saveDraft(req.params.id, req.body ?? {}));
   app.post(`${base}/requests/:id/reject`, (req) => requests.rejectRequest(req.params.id, req.body ?? {}));
   app.post(`${base}/requests/:id/publish`, async (req, reply) => reply.code(201).send(await requests.publishRequest(req.params.id, req.body ?? {})));

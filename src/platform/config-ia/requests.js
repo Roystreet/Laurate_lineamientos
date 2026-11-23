@@ -98,15 +98,23 @@ export async function saveDraft(id, { autor, cambios }) {
   await transaction(async (c) => {
     const solicitud = await loadRequest(id, c, true);
     if (CLOSED.includes(solicitud.estado)) throw fail('La solicitud ya está cerrada.', 409);
-    for (const change of validated) {
-      if (change.op === 'crear' && !change.codigo) change.codigo = await allocateRuleCode(c);
-      // `antes` is the rule as the editor saw it; without it a stale screen could overwrite a newer production rule.
-      if (change.op === 'modificar' && !change.antes) throw fail(`Falta la versión de referencia de ${change.codigo}; recarga la solicitud.`);
-    }
-    await query("UPDATE ia_solicitudes SET cambios=?, estado='en_prueba' WHERE id=?", [JSON.stringify(validated), id], c);
+    await persistDraft(solicitud, validated, c);
     await addEvent(id, 'borrador_guardado', who, { cambios: validated.length }, c);
   });
   return requestDetail(id);
+}
+
+/**
+ * Guarda cambios ya validados como borrador de la solicitud (que quien llama tiene bloqueada) y la deja en prueba.
+ * Asigna su código a cada regla nueva (sobre los mismos objetos de `validated`).
+ */
+export async function persistDraft(solicitud, validated, c) {
+  for (const change of validated) {
+    if (change.op === 'crear' && !change.codigo) change.codigo = await allocateRuleCode(c);
+    // `antes` is the rule as the editor saw it; without it a stale screen could overwrite a newer production rule.
+    if (change.op === 'modificar' && !change.antes) throw fail(`Falta la versión de referencia de ${change.codigo}; recarga la solicitud.`);
+  }
+  await query("UPDATE ia_solicitudes SET cambios=?, estado='en_prueba' WHERE id=?", [JSON.stringify(validated), solicitud.id], c);
 }
 
 export async function rejectRequest(id, { autor, motivo }) {
@@ -131,7 +139,7 @@ export async function publishRequest(id, { autor }) {
     const pub = publication(solicitud, prod, await testsOf(id, c));
     if (!pub.ok) throw fail(pub.motivo, 409);
     const { rules } = applyChanges(prod.reglas, solicitud.cambios);
-    const autores = Object.fromEntries(solicitud.cambios.map((ch) => [ch.codigo, { autor: ch.autor, motivo: ch.motivo }]));
+    const autores = Object.fromEntries(solicitud.cambios.map((ch) => [ch.codigo, { autor: ch.autor, motivo: ch.motivo, sugerencia_id: ch.sugerencia_id }]));
     await query("UPDATE ia_solicitudes SET estado='publicada' WHERE id=?", [id], c);
     const version = await insertVersion({ reglas: rules, origen: 'solicitud', solicitudId: id, autor: who, motivo: solicitud.descripcion, autores }, c);
     await addEvent(id, 'publicada', who, { numero: version.numero }, c);

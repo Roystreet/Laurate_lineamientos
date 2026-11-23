@@ -5,11 +5,11 @@ import { query, transaction, json } from '../db.js';
 import { config } from '../../config/runtime.js';
 import { parseLlmJsonObject } from '../../llm/parse-json.js';
 import { normalizeTipo } from '../../prompt/criterios/index.js';
-import { applyChanges, normalizeAuthor } from '../../config-ia/draft.js';
-import { validateSuggestion, INVALID_SUGGESTION } from '../../config-ia/suggestion.js';
+import { applyChanges, normalizeAuthor, validateChanges } from '../../config-ia/draft.js';
+import { validateSuggestion, INVALID_SUGGESTION, optionOf, applyApproval } from '../../config-ia/suggestion.js';
 import { buildSuggestionPrompt } from '../../config-ia/suggestion-prompt.js';
 import { fail, versionById } from './versions.js';
-import { loadRequest, addEvent } from './requests.js';
+import { loadRequest, addEvent, persistDraft, requestDetail } from './requests.js';
 
 export const SUGGESTION_TIMEOUT_MS = 120000;
 export const SUGGESTION_ATTEMPTS = 2;
@@ -17,11 +17,13 @@ export const SUGGESTION_ATTEMPTS = 2;
 export const SUGGESTION_STALE_MS = 300000;
 const MAX_INDICACION = 500;
 const CLOSED = ['publicada', 'rechazada'];
+const APPROVABLE = ['lista', 'aprobada'];
+const DISCARDABLE = ['generando', 'lista', 'error'];
 const AI_FAILED = 'No fue posible generar la sugerencia. Pide otra o escribe la regla a mano.';
 const INTERRUPTED = 'Se interrumpió la sugerencia; pide otra.';
 // La antigüedad se mide con el reloj de MySQL, el mismo que fijó created_at.
 const STALE_BEFORE = `NOW(3) - INTERVAL ${SUGGESTION_STALE_MS * 1000} MICROSECOND`;
-const hideSecrets = (message) => [process.env.OPENAI_API_KEY, config.mysql.password].filter(Boolean)
+export const hideSecrets = (message) => [process.env.OPENAI_API_KEY, config.mysql.password].filter(Boolean)
   .reduce((text, secret) => text.split(secret).join('[oculto]'), String(message ?? ''));
 
 /**
@@ -41,7 +43,7 @@ export async function knownRules(solicitud, c) {
       if (!ch.codigo || !ch.texto) continue;
       const rule = base.reglas.find((r) => r.codigo === ch.codigo);
       known.push({
-        codigo: ch.codigo, texto: ch.texto, criterios: ch.criterios ?? rule?.criterios ?? [], activa: ch.activa ?? rule?.activa ?? true,
+        codigo: ch.codigo, texto: ch.texto, criterios: ch.criterios ?? ch.antes?.criterios ?? rule?.criterios ?? [], activa: ch.activa ?? rule?.activa ?? true,
         origen: 'otra_solicitud', solicitud_numero: other.numero,
       });
     }
@@ -66,7 +68,10 @@ export async function startSuggestion(solicitudId, { autor, indicacion } = {}, l
     const [busy] = await query(`SELECT id FROM ia_sugerencias WHERE solicitud_id=? AND estado='generando' AND created_at >= ${STALE_BEFORE} LIMIT 1`, [solicitudId], c);
     if (busy) throw fail('Ya se está generando una sugerencia.', 409);
     const [prev] = await query('SELECT propuesta FROM ia_sugerencias WHERE solicitud_id=? AND propuesta IS NOT NULL ORDER BY created_at DESC, id DESC LIMIT 1', [solicitudId], c);
-    await query("UPDATE ia_sugerencias SET estado='reemplazada' WHERE solicitud_id=? AND estado IN ('generando','lista','error','aprobada')", [solicitudId], c);
+    // Se buscan con una lectura simple (la solicitud ya está bloqueada) y se actualizan por id: un UPDATE por
+    // solicitud_id sin filas que cambiar bloquea un hueco del índice y choca con la primera sugerencia de otra solicitud.
+    const replaced = (await query("SELECT id FROM ia_sugerencias WHERE solicitud_id=? AND estado IN ('generando','lista','error','aprobada')", [solicitudId], c)).map((r) => r.id);
+    if (replaced.length) await query(`UPDATE ia_sugerencias SET estado='reemplazada' WHERE id IN (${replaced.map(() => '?').join(',')})`, replaced, c);
     const known = await knownRules(solicitud, c);
     const mensajes = buildSuggestionPrompt({ solicitud, tipo: await requirementType(solicitud, c), known, previa: prev ? json(prev.propuesta) : null, indicacion: hint });
     const id = randomUUID();
@@ -96,7 +101,10 @@ async function generate({ id, mensajes, known, criterioId }, llm) {
       return;
     }
     let propuesta = null;
-    try { propuesta = validateSuggestion(parseLlmJsonObject(response?.rawText), { known, criterioId }); } catch { /* queda la respuesta cruda y el aviso de sugerencia inválida */ }
+    try { propuesta = validateSuggestion(parseLlmJsonObject(response?.rawText), { known, criterioId }); } catch (error) {
+      // Queda la respuesta cruda y el aviso de sugerencia inválida; lo inesperado (JSON roto, un error del código) se registra.
+      if (error?.message !== INVALID_SUGGESTION) console.error(`Sugerencia ${id}: respuesta no válida (${hideSecrets(error?.message)})`);
+    }
     await finish(id, {
       estado: propuesta ? 'lista' : 'error', respuesta: response?.rawText ?? null, uso: JSON.stringify(response?.usage ?? null),
       duracionMs: Date.now() - start, error: propuesta ? null : INVALID_SUGGESTION, propuesta: propuesta && JSON.stringify(propuesta),
@@ -120,4 +128,55 @@ export async function latestSuggestion(solicitudId, c) {
     error: interrumpida ? INTERRUPTED : row.error, autor: row.autor, indicacion: row.indicacion, created_at: row.created_at,
     propuesta: row.propuesta ? json(row.propuesta) : null, aprobaciones: json(row.aprobaciones),
   };
+}
+
+// Bloquea la solicitud y después la sugerencia, en el mismo orden que startSuggestion, para que "Aprobar" y
+// "Pedir otra" a la vez no se bloqueen entre sí. La solicitud de una sugerencia no cambia: se lee antes de bloquear.
+async function changeSuggestion(id, change) {
+  const [ref] = await query('SELECT solicitud_id FROM ia_sugerencias WHERE id=?', [id]);
+  if (!ref) throw fail('Sugerencia no encontrada.', 404);
+  await transaction(async (c) => {
+    const solicitud = await loadRequest(ref.solicitud_id, c, true);
+    const [sugerencia] = await query('SELECT * FROM ia_sugerencias WHERE id=? FOR UPDATE', [id], c);
+    await change(solicitud, sugerencia, c);
+  });
+  return requestDetail(ref.solicitud_id);
+}
+
+/** Lleva al borrador una opción de la sugerencia ('regla_nueva' o 'R-x'), tal cual o con texto, criterios o motivo editados. */
+export async function approveSuggestion(id, { autor, opcion, texto, criterios, motivo } = {}) {
+  const who = normalizeAuthor(autor);
+  return changeSuggestion(id, async (solicitud, sugerencia, c) => {
+    if (!APPROVABLE.includes(sugerencia.estado)) throw fail('Esta sugerencia ya no se puede aprobar.', 409);
+    if (CLOSED.includes(solicitud.estado)) throw fail('La solicitud ya está cerrada.', 409);
+    if (sugerencia.base_version_id !== solicitud.base_version_id) throw fail('Producción cambió; pide otra sugerencia.', 409);
+    const aprobaciones = json(sugerencia.aprobaciones);
+    if (aprobaciones.some((a) => a.opcion === opcion)) throw fail('Esta opción ya se aprobó.', 409);
+    const option = optionOf(json(sugerencia.propuesta), opcion);
+    const base = await versionById(solicitud.base_version_id, c);
+    const cambios = validateChanges(applyApproval(solicitud.cambios, base.reglas, {
+      opcion, texto: texto ?? option.texto, criterios: criterios ?? option.criterios, motivo: motivo ?? option.motivo, autor: who, sugerenciaId: sugerencia.id,
+    }));
+    // applyApproval agrega la regla nueva al final; persistDraft le asigna su código.
+    const approved = opcion === 'regla_nueva' ? cambios.at(-1) : cambios.find((ch) => ch.codigo === opcion);
+    await persistDraft(solicitud, cambios, c);
+    // Se compara ya normalizado: otros espacios u otro orden de criterios no cuentan como edición.
+    const editada = ['texto', 'criterios', 'motivo'].some((k) => JSON.stringify(approved[k]) !== JSON.stringify(option[k]));
+    aprobaciones.push({
+      opcion, codigo: approved.codigo, editada, texto: approved.texto, criterios: approved.criterios, motivo: approved.motivo, autor: who, fecha: new Date().toISOString(),
+    });
+    await query("UPDATE ia_sugerencias SET estado='aprobada', aprobaciones=? WHERE id=?", [JSON.stringify(aprobaciones), sugerencia.id], c);
+    await addEvent(solicitud.id, 'sugerencia_aprobada', who, { sugerencia: sugerencia.id, opcion, editada }, c);
+  });
+}
+
+/** Descarta una sugerencia que aún no se aprobó; si se está generando, su respuesta ya no se guarda. */
+export async function discardSuggestion(id, { autor } = {}) {
+  const who = normalizeAuthor(autor);
+  return changeSuggestion(id, async (solicitud, sugerencia, c) => {
+    if (!DISCARDABLE.includes(sugerencia.estado)) throw fail('Esta sugerencia ya no se puede descartar.', 409);
+    if (CLOSED.includes(solicitud.estado)) throw fail('La solicitud ya está cerrada.', 409);
+    await query("UPDATE ia_sugerencias SET estado='descartada' WHERE id=?", [sugerencia.id], c);
+    await addEvent(solicitud.id, 'sugerencia_descartada', who, { sugerencia: sugerencia.id }, c);
+  });
 }
