@@ -4,6 +4,7 @@ import { query, transaction, json } from '../db.js';
 import { CRITERIOS } from '../../prompt/criterios/index.js';
 import { validateChanges, applyChanges, touchedCriteria, canPublish, normalizeAuthor } from '../../config-ia/draft.js';
 import { fail, production, versionById, allocateRuleCode, insertVersion, lockCoordination } from './versions.js';
+import { latestSuggestion } from './suggestions.js';
 
 const CLOSED = ['publicada', 'rechazada'];
 const criterioNombre = (id) => CRITERIOS.find((c) => c.id === Number(id))?.nombre ?? `Criterio ${id}`;
@@ -23,7 +24,7 @@ function publication(solicitud, prod, tests) {
   if (CLOSED.includes(solicitud.estado)) return { ok: false, motivo: 'La solicitud ya está cerrada.' };
   return canPublish({ production: prod, cambios: solicitud.cambios, tests });
 }
-async function loadRequest(id, c, lock = false) {
+export async function loadRequest(id, c, lock = false) {
   const [row] = await query(`SELECT s.*, r.codigo requerimiento_codigo FROM ia_solicitudes s JOIN requerimientos r ON r.id=s.requerimiento_id WHERE s.id=?${lock ? ' FOR UPDATE' : ''}`, [id], c);
   if (!row) throw fail('Solicitud no encontrada.', 404);
   return { ...row, cambios: json(row.cambios), fila_copia: row.fila_copia ? json(row.fila_copia) : null };
@@ -63,9 +64,10 @@ export async function createRequest({ autor, descripcion, esperado, ejecucionId,
 
 export async function requestDetail(id) {
   const solicitud = await loadRequest(id);
-  const [base, prod, tests, eventos] = await Promise.all([
+  const [base, prod, tests, eventos, sugerencia] = await Promise.all([
     versionById(solicitud.base_version_id), production(), testsOf(id),
     query('SELECT tipo,autor,detalle,created_at FROM ia_solicitud_eventos WHERE solicitud_id=? ORDER BY created_at, id', [id]),
+    latestSuggestion(id),
   ]);
   const { rules, conflictos } = applyChanges(base.reglas, solicitud.cambios);
   return {
@@ -75,6 +77,7 @@ export async function requestDetail(id) {
     eventos: eventos.map((e) => ({ ...e, detalle: e.detalle ? json(e.detalle) : null })),
     produccion_numero: prod.numero,
     publicacion: publication(solicitud, prod, tests),
+    sugerencia,
   };
 }
 

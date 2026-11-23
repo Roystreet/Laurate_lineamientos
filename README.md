@@ -85,6 +85,7 @@ Diseño y plan: [docs/superpowers/specs/2026-11-12-config-ia-design.md](docs/sup
 | `FICHA_MODEL`, `FICHA_REASONING_EFFORT` | `gpt-5.4`, `high` |
 | `ANALISIS_MODEL`, `ANALISIS_REASONING_EFFORT` | `gpt-5.4-mini`, `medium` |
 | `OCR_MODEL`, `OCR_REASONING_EFFORT` | `gpt-5.4-mini`, `medium` |
+| `SUGERENCIA_MODEL`, `SUGERENCIA_REASONING_EFFORT` | `gpt-5.4`, `medium` (regla sugerida por IA en Config IA) |
 | `OCR_MODE`, `OCR_IMAGE_DETAIL` | `auto`, `original` |
 | `OCR_DPI`, `OCR_MIN_TEXT_CHARS` | `200`, `40` |
 | `OPENAI_TIMEOUT_MS`, `OPENAI_MAX_ATTEMPTS` | `900000`, `3` |

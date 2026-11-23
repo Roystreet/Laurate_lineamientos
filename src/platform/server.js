@@ -28,7 +28,7 @@ async function validateSignature(file,ext) {
     if(!valid) throw failure('El contenido del archivo no coincide con su formato.');
   }finally{await handle.close();}
 }
-export async function buildServer() {
+export async function buildServer({llm}={}) {
   const app=Fastify({logger:false,bodyLimit:1024*1024});
   await app.register(multipart,{limits:{fileSize:config.uploadMb*1024*1024,files:config.uploadFiles,fields:10,parts:config.uploadFiles+10}});
   app.setErrorHandler((error,request,reply)=>{
@@ -46,7 +46,7 @@ export async function buildServer() {
   });
   app.get('/api/health',async()=>{await query('SELECT 1');return {ok:true};});
   app.get('/api/config',async()=>({parameters:publicConfig(),formats:SUPPORTED_EXTS,maxRequirements:10,reglasVersion:(await production()).numero}));
-  registerConfigIaRoutes(app);
+  registerConfigIaRoutes(app,{llm});
   app.get('/api/requirements',()=>model.requirements());
   app.get('/api/requirements/:id/documents',(req)=>model.documents(req.params.id));
   app.get('/api/evidence-library',()=>model.evidenceLibrary());

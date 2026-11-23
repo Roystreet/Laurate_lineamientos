@@ -9,3 +9,8 @@ test('environment overrides are validated and secrets are excluded from snapshot
   assert.equal(cfg.ocrDpi,300);assert.equal(cfg.uploadMb,25);assert.ok(!JSON.stringify(publicConfig(cfg)).includes('test-secret'));assert.ok(!JSON.stringify(publicConfig(cfg)).includes('test-key'));
   for(const env of [{OCR_MODE:'invalid'},{OCR_DPI:'0'},{OPENAI_MAX_ATTEMPTS:'0'},{MYSQL_PORT:'nan'}])assert.throws(()=>loadConfig(env));
 });
+test('suggestion model and effort have their own defaults and validated effort',()=>{
+  const cfg=loadConfig({});assert.equal(cfg.suggestionModel,'gpt-5.4');assert.equal(cfg.suggestionEffort,'medium');
+  const custom=loadConfig({SUGERENCIA_MODEL:'gpt-5.4-mini',SUGERENCIA_REASONING_EFFORT:'high'});assert.equal(custom.suggestionModel,'gpt-5.4-mini');assert.equal(custom.suggestionEffort,'high');
+  assert.throws(()=>loadConfig({SUGERENCIA_REASONING_EFFORT:'x'}),/SUGERENCIA_REASONING_EFFORT/);
+});

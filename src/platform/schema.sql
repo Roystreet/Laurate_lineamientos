@@ -98,7 +98,7 @@ CREATE TABLE IF NOT EXISTS ia_reglas (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 CREATE TABLE IF NOT EXISTS ia_reglas_historial (
  id CHAR(36) PRIMARY KEY, codigo VARCHAR(16) NOT NULL, version_id CHAR(36) NOT NULL, accion VARCHAR(16) NOT NULL,
- antes JSON, despues JSON NOT NULL, autor VARCHAR(100) NOT NULL, motivo TEXT, solicitud_id CHAR(36),
+ antes JSON, despues JSON NOT NULL, autor VARCHAR(100) NOT NULL, motivo TEXT, solicitud_id CHAR(36), sugerencia_id CHAR(36),
  created_at TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP(3), INDEX(codigo),
  FOREIGN KEY (version_id) REFERENCES ia_versiones(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -132,4 +132,11 @@ CREATE TABLE IF NOT EXISTS ia_pruebas_resultados (
  criterio_id INT NOT NULL, lado VARCHAR(12) NOT NULL, origen VARCHAR(12) NOT NULL, estado_tecnico VARCHAR(24) NOT NULL,
  filas JSON NOT NULL, UNIQUE(prueba_id, requerimiento_id, criterio_id, lado),
  FOREIGN KEY (prueba_id) REFERENCES ia_pruebas(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE IF NOT EXISTS ia_sugerencias (
+ id CHAR(36) PRIMARY KEY, solicitud_id CHAR(36) NOT NULL, autor VARCHAR(100) NOT NULL, indicacion TEXT,
+ base_version_id CHAR(36) NOT NULL, estado VARCHAR(16) NOT NULL, modelo VARCHAR(128) NOT NULL, esfuerzo VARCHAR(16),
+ mensajes JSON NOT NULL, respuesta LONGTEXT, uso JSON, duracion_ms BIGINT, error TEXT, propuesta JSON, aprobaciones JSON NOT NULL,
+ created_at TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP(3), finished_at TIMESTAMP(3) NULL, INDEX(solicitud_id, created_at),
+ FOREIGN KEY (solicitud_id) REFERENCES ia_solicitudes(id), FOREIGN KEY (base_version_id) REFERENCES ia_versiones(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

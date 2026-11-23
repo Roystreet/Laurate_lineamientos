@@ -21,6 +21,7 @@ export function loadConfig(env = process.env) {
     fichaModel: str('FICHA_MODEL', 'gpt-5.4'), fichaEffort: choice('FICHA_REASONING_EFFORT', 'high', efforts),
     analysisModel: str('ANALISIS_MODEL', 'gpt-5.4-mini'), analysisEffort: choice('ANALISIS_REASONING_EFFORT', 'medium', efforts),
     ocrModel: str('OCR_MODEL', 'gpt-5.4-mini'), ocrEffort: choice('OCR_REASONING_EFFORT', 'medium', efforts),
+    suggestionModel: str('SUGERENCIA_MODEL', 'gpt-5.4'), suggestionEffort: choice('SUGERENCIA_REASONING_EFFORT', 'medium', efforts),
     ocrMode: choice('OCR_MODE', 'auto', ['auto', 'always', 'off']),
     ocrDetail: choice('OCR_IMAGE_DETAIL', 'original', ['auto', 'low', 'high', 'original']),
     ocrDpi: num('OCR_DPI', 200, 72, 600), ocrMinChars: num('OCR_MIN_TEXT_CHARS', 40, 0),
