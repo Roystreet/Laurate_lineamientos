@@ -7,7 +7,7 @@ import { config } from '../../src/config/runtime.js';
 import { production, insertVersion, allocateRuleCode, listVersions, ruleHistory, republish, listRules } from '../../src/platform/config-ia/versions.js';
 import { casesFor, createRequest, requestDetail, saveDraft, rejectRequest, listRequests, publishRequest, loadRequest } from '../../src/platform/config-ia/requests.js';
 import { createTest, testDetail, recordVerdict } from '../../src/platform/config-ia/playground.js';
-import { startSuggestion, latestSuggestion, knownRules, approveSuggestion, discardSuggestion } from '../../src/platform/config-ia/suggestions.js';
+import { startSuggestion, latestSuggestion, knownRules, approveSuggestion, discardSuggestion, interruptPendingSuggestions } from '../../src/platform/config-ia/suggestions.js';
 import { INVALID_SUGGESTION } from '../../src/config-ia/suggestion.js';
 import { claim, settle } from '../../src/platform/queue.js';
 import { processTask } from '../../src/platform/processor.js';
@@ -648,7 +648,7 @@ test('aprobar: regla nueva y ajuste de producción entran al borrador con sugere
   d = r.json();
   assert.equal(d.borrador.cambios.length, 2);
   assert.deepEqual(d.borrador.cambios[1], {
-    op: 'modificar', codigo, texto: 'Texto editado del ajuste', criterios: [2], autor: 'Marta', motivo: 'Incluye lo pedido.', sugerencia_id: id,
+    op: 'modificar', codigo, texto: 'Texto editado del ajuste', criterios: [2], activa: true, autor: 'Marta', motivo: 'Incluye lo pedido.', sugerencia_id: id,
     antes: { texto: 'No exigir firmas', criterios: [2], activa: true },
   });
   assert.deepEqual(d.borrador.conflictos, []);
@@ -780,4 +780,36 @@ test('publicar: el historial de la regla guarda la sugerencia de origen', async 
   assert.deepEqual([h.accion, h.autor, h.sugerencia_id], ['agregada', 'Marta', id]);
   assert.equal((await ruleHistory(manual))[0].sugerencia_id, null);
   assert.equal((await app.inject(`/api/config-ia/rules/${nueva}/history`)).json()[0].sugerencia_id, id);
+});
+
+test('aprobar: el ajuste de una regla inactiva de producción la deja activa en el borrador', async () => {
+  const s = await requestFor(await seedAnalyzed(app, '7.9.1', fakeLlm()));
+  const codigo = await transaction(async (c) => allocateRuleCode(c));
+  await publishRules([...(await production()).reglas, { codigo, texto: 'Regla apagada', criterios: [2], activa: false }]);
+  const id = await suggest(s, withClash(codigo));
+  const d = await approveSuggestion(id, { autor: 'Ana', opcion: codigo });
+  assert.deepEqual(d.borrador.cambios.map((c) => [c.op, c.codigo, c.activa, c.antes]), [['modificar', codigo, true, { texto: 'Regla apagada', criterios: [2], activa: false }]]);
+  assert.deepEqual(d.borrador.conflictos, []);
+  const rule = d.borrador.reglas.find((r) => r.codigo === codigo);
+  assert.deepEqual([rule.texto, rule.activa], [withClash(codigo).choques[0].ajuste.texto, true]);
+});
+
+test('sugerencias: al arrancar la API, las que quedaron generándose se marcan interrumpidas', async () => {
+  const s = await requestFor(await seedAnalyzed(app, '7.9.2', fakeLlm()));
+  const A = await startSuggestion(s.id, { autor: 'Ana' }, fakeSuggest(plainRaw));
+  await A.done;
+  // As if the API restarted mid-generation: a recent 'generando' row that nobody will finish.
+  await query("UPDATE ia_sugerencias SET estado='generando', propuesta=NULL, finished_at=NULL, created_at=NOW(3) WHERE id=?", [A.id]);
+  await assert.rejects(startSuggestion(s.id, { autor: 'Ana' }, fakeSuggest(plainRaw)), (e) => e.statusCode === 409 && e.message === 'Ya se está generando una sugerencia.');
+  await interruptPendingSuggestions();
+  const v = await latestSuggestion(s.id);
+  assert.deepEqual([v.id, v.estado, v.error], [A.id, 'error', 'Se interrumpió la sugerencia; pide otra.']);
+  const row = await suggestionRow(A.id);
+  assert.deepEqual([row.estado, row.error], ['error', 'Se interrumpió la sugerencia; pide otra.']);
+  assert.ok(row.finished_at);
+  // "Pedir otra" is allowed right away, without waiting for the stale limit.
+  const B = await startSuggestion(s.id, { autor: 'Ana' }, fakeSuggest(plainRaw));
+  await B.done;
+  assert.deepEqual([(await latestSuggestion(s.id)).id, (await latestSuggestion(s.id)).estado], [B.id, 'lista']);
+  assert.equal((await suggestionRow(A.id)).estado, 'reemplazada');
 });

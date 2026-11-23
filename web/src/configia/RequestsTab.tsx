@@ -45,11 +45,10 @@ export function RequestDetailModal({id,onClose,onOpenPlayground,onChanged,onErro
     return ()=>clearInterval(timer);
   },[generating,id]);
   const afterSuggestion=(d:RequestDetail)=>{setDetail(d);setSugerencia(d.sugerencia ?? null);onChanged();};
+  // Rethrows when the server refuses the request, so the card keeps the indication the user wrote.
   async function suggest(indicacion=''){
-    try{
-      await post(`/config-ia/requests/${id}/suggestions`,{autor,...(indicacion?{indicacion}:{})});
-      const r=await api<{sugerencia:Suggestion|null}>(`/config-ia/requests/${id}/suggestion`);setSugerencia(r.sugerencia);
-    }catch(e){onError((e as Error).message);}
+    try{await post(`/config-ia/requests/${id}/suggestions`,{autor,...(indicacion?{indicacion}:{})});}catch(e){onError((e as Error).message);throw e;}
+    try{const r=await api<{sugerencia:Suggestion|null}>(`/config-ia/requests/${id}/suggestion`);setSugerencia(r.sugerencia);}catch(e){onError((e as Error).message);}
   }
   async function act(fn:()=>Promise<unknown>){setBusy(true);try{await fn();await load();onChanged();}catch(e){onError((e as Error).message);}finally{setBusy(false);}}
   if(!detail)return <Modal title="Solicitud" onClose={onClose}><p className="muted">Cargando…</p></Modal>;
@@ -60,9 +59,9 @@ export function RequestDetailModal({id,onClose,onOpenPlayground,onChanged,onErro
     <div><h4>Resultado original</h4><FindingCard row={detail.fila_copia}/></div>
     {!closed?<AuthorField value={autor} onChange={setAutor}/>:null}
     {sugerencia&&sugerencia.estado!=='descartada'?<SuggestionCard value={sugerencia} closed={closed} draftDirty={dirty} autor={autor} onRequest={suggest}
-      onApprove={async body=>{try{afterSuggestion(await post<RequestDetail>(`/config-ia/suggestions/${sugerencia.id}/approve`,body));}catch(e){onError((e as Error).message);}}}
+      onApprove={async body=>{try{afterSuggestion(await post<RequestDetail>(`/config-ia/suggestions/${sugerencia.id}/approve`,body));}catch(e){onError((e as Error).message);throw e;}}}
       onDiscard={async()=>{try{const d=await post<RequestDetail>(`/config-ia/suggestions/${sugerencia.id}/discard`,{autor});setSugerencia(d.sugerencia ?? null);onChanged();}catch(e){onError((e as Error).message);}}}/>:null}
-    <DraftEditor detail={detail} autor={autor} onSaved={d=>{setDetail(d);onChanged();}} onError={onError} onSuggest={()=>void suggest()} suggesting={generating} onDirtyChange={setDirty}/>
+    <DraftEditor detail={detail} autor={autor} onSaved={d=>{setDetail(d);onChanged();}} onError={onError} onSuggest={()=>void suggest().catch(()=>{/* already shown */})} suggesting={generating} onDirtyChange={setDirty}/>
     {detail.pruebas.length?<div><h4>Pruebas</h4><ul className="cia-rule-list">{detail.pruebas.map(t=><li key={t.id}>{formatDate(t.created_at)} · <span className="status">{t.estado==='complete'?'Completada':t.estado==='partial'?'Parcial':'En curso'}</span>{t.exploratoria?<span className="type-tag">Exploratoria</span>:null}{t.veredicto?<StateBadge estado={t.veredicto}/>:null}{t.revisor?` ${t.revisor}`:''}{t.comentario?` — ${t.comentario}`:''}</li>)}</ul></div>:null}
     {!closed?<div className="cia-actions">
       <button className="secondary" onClick={()=>onOpenPlayground(detail.id)}><FlaskConical size={15}/>Probar en el playground</button>

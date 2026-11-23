@@ -15,6 +15,7 @@ import { storagePath, fileHash } from './storage.js';
 import * as model from './model.js';
 import { registerConfigIaRoutes } from './config-ia/routes.js';
 import { production } from './config-ia/versions.js';
+import { interruptPendingSuggestions } from './config-ia/suggestions.js';
 
 const failure=(message,statusCode=400)=>Object.assign(new Error(message),{statusCode});
 async function validateSignature(file,ext) {
@@ -126,6 +127,8 @@ export async function buildServer({llm}={}) {
 }
 if(process.argv[1] && import.meta.url===pathToFileURL(process.argv[1]).href){
   const app=await buildServer();
+  // Solo al arrancar (no en buildServer, que las pruebas crean muchas veces): lo que se generaba antes del reinicio quedó interrumpido.
+  try{await interruptPendingSuggestions();}catch(error){console.error(`No se pudieron cerrar las sugerencias interrumpidas (${error.code ?? 'error interno'}).`);}
   const shutdown=async()=>{await app.close();await pool.end();};
   process.on('SIGTERM',()=>shutdown());process.on('SIGINT',()=>shutdown());
   await app.listen({host:config.host,port:config.port});

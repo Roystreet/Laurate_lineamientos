@@ -11,7 +11,10 @@ const invalid = () => new Error(INVALID_SUGGESTION);
 const err = (message, statusCode) => Object.assign(new Error(message), { statusCode });
 const str = (v) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : '');
 const strip = (v) => str(v).replace(/\.+$/, '').trim();
-const criteriosOf = (v) => { try { return normalizeCriteria(v); } catch { return null; } };
+// La IA a veces escribe los criterios como texto ("2"): se convierten a número antes de validarlos.
+const criteriosOf = (v) => {
+  try { return normalizeCriteria(Array.isArray(v) ? v.map((c) => (typeof c === 'string' ? Number(c) : c)) : v); } catch { return null; }
+};
 
 /** Arma el texto de una regla en una sola línea: `Cuando <cuando>, <hacer>.` + ` Excepción: <excepto>.` */
 export function composeRuleText({ cuando, hacer, excepto } = {}) {
@@ -84,23 +87,27 @@ export function validateSuggestion(raw, { known, criterioId }) {
 /** Texto, criterios y motivo de la opción elegida: 'regla_nueva' o el código de un choque con ajuste. */
 export function optionOf(propuesta, opcion) {
   if (opcion === 'regla_nueva') { const { texto, criterios, motivo } = propuesta.regla; return { texto, criterios, motivo }; }
-  const ajuste = propuesta.choques.find((c) => c.codigo === opcion)?.ajuste;
+  // El mismo código puede chocar también como regla de otra solicitud (sin ajuste): cuenta el que tiene ajuste.
+  const ajuste = propuesta.choques.find((c) => c.codigo === opcion && c.ajuste)?.ajuste;
   if (!ajuste) throw err('Opción no reconocida.', 400);
   return ajuste;
 }
 
-/** Devuelve los cambios del borrador con la sugerencia aprobada aplicada (no muta los de entrada). */
+/**
+ * Devuelve los cambios del borrador con la sugerencia aprobada aplicada (no muta los de entrada).
+ * Un ajuste aprobado deja la regla activa, aunque estuviera desactivada en producción o en el borrador.
+ */
 export function applyApproval(cambios, baseReglas, { opcion, texto, criterios, motivo, autor, sugerenciaId }) {
   const sug = { texto, criterios, motivo, autor, sugerencia_id: sugerenciaId };
   if (opcion === 'regla_nueva') return [...cambios, { op: 'crear', codigo: null, ...sug }];
   const prev = cambios.find((c) => c.codigo === opcion);
   let next;
   if (prev?.op === 'crear') next = { op: 'crear', codigo: opcion, ...sug };
-  else if (prev) next = { op: 'modificar', codigo: opcion, ...sug, ...('activa' in prev ? { activa: prev.activa } : {}), antes: prev.antes };
+  else if (prev) next = { op: 'modificar', codigo: opcion, ...sug, activa: true, antes: prev.antes };
   else {
     const rule = baseReglas.find((r) => r.codigo === opcion);
     if (!rule) throw err(`La regla ${opcion} ya no está disponible; pide otra sugerencia.`, 409);
-    next = { op: 'modificar', codigo: opcion, ...sug, antes: { texto: rule.texto, criterios: rule.criterios, activa: rule.activa } };
+    next = { op: 'modificar', codigo: opcion, ...sug, activa: true, antes: { texto: rule.texto, criterios: rule.criterios, activa: rule.activa } };
   }
   return prev ? cambios.map((c) => (c === prev ? next : c)) : [...cambios, next];
 }

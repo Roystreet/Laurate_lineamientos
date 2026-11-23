@@ -21,6 +21,14 @@ test('SUGGESTION_SYSTEM fija reglas de redacción, choques, advertencias y forma
     'contradice_texto_base', 'hallazgo_parece_correcto', 'problema_de_entrada', 'esta_solicitud', 'otra_solicitud']) assert.ok(SUGGESTION_SYSTEM.includes(s), s);
 });
 
+test('SUGGESTION_SYSTEM explica cómo se arma la regla y qué hacer al pedir otra', () => {
+  // How our code assembles the rule, so "cuando" and "hacer" fit the sentence.
+  for (const s of ['"Cuando <cuando>, <hacer>. Excepción: <excepto>."', '"cuando" no empieza con "Cuando" ni con "si"', '"hacer" empieza en minúscula']) assert.ok(SUGGESTION_SYSTEM.includes(s), s);
+  // "Pedir otra": the previous suggestion, the person's indication and replacing this request's rule.
+  for (const s of ['OTRA SUGERENCIA', '<sugerencia_anterior>', '<indicacion_del_usuario>', 'no funcionar al probarla',
+    'Si una regla con origen "esta_solicitud" ya intenta corregir este mismo caso, propón su reemplazo como "ajuste" de esa regla y recomiéndalo, sea cual sea el tipo de choque.']) assert.ok(SUGGESTION_SYSTEM.includes(s), s);
+});
+
 test('buildSuggestionPrompt incluye la solicitud, el hallazgo y las reglas con su origen', () => {
   const { system, user } = build({ known: [R(3), R(5, { origen: 'otra_solicitud', solicitud_numero: 14, activa: false })] });
   assert.equal(system, SUGGESTION_SYSTEM);

@@ -24,11 +24,17 @@ CÓMO REDACTAR
 - Una regla = una conducta. General y reutilizable: no menciones el código del requerimiento, nombres de archivos ni el caso puntual salvo que sea indispensable.
 - Lenguaje imperativo y directo. No inventes normativa.
 - "criterios": los criterios (1 a 6) donde la regla debe aplicarse.
+- Nuestro código arma la regla así: "Cuando <cuando>, <hacer>. Excepción: <excepto>." Por eso "cuando" no empieza con "Cuando" ni con "si", y "hacer" empieza en minúscula, como continuación de la frase.
 
 CHOQUES con reglas existentes (<reglas_existentes>)
 - "contradice": piden conductas opuestas. "duplica": dicen lo mismo. "se_solapa": cubren parte del mismo caso con distinto alcance.
 - "ajuste": solo para reglas con origen "produccion" o "esta_solicitud", nunca "otra_solicitud". Es el texto completo nuevo de esa regla, reescrito para que incluya la conducta pedida y deje de chocar; aprobar solo el ajuste debe bastar.
-- "recomendacion": el código de la regla a ajustar si hay un choque "contradice" o "duplica" con ajuste; si no, "regla_nueva".
+- "recomendacion": el código de la regla a ajustar si hay un choque "contradice" o "duplica" con ajuste; si no, "regla_nueva", salvo el caso siguiente.
+- Si una regla con origen "esta_solicitud" ya intenta corregir este mismo caso, propón su reemplazo como "ajuste" de esa regla y recomiéndalo, sea cual sea el tipo de choque.
+
+OTRA SUGERENCIA
+- Si llega <sugerencia_anterior>, la persona pidió otra sugerencia: quiere una regla distinta de esa, que pudo no funcionar al probarla. No la repitas.
+- Si llega <indicacion_del_usuario>, aplícala al redactar.
 
 ADVERTENCIAS (tipos)
 - "contradice_texto_base": lo pedido choca con las reglas de negocio o el texto base del criterio.

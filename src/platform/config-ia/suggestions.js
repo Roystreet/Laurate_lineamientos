@@ -114,11 +114,22 @@ async function generate({ id, mensajes, known, criterioId }, llm) {
   }
 }
 
+/**
+ * Al arrancar la API: las sugerencias que seguían generándose quedaron sin dueño (se generan en el proceso de la API).
+ * Se marcan interrumpidas para que "Pedir otra" funcione de inmediato, sin esperar SUGGESTION_STALE_MS.
+ */
+export async function interruptPendingSuggestions() {
+  const result = await query("UPDATE ia_sugerencias SET estado='error', error=?, finished_at=NOW(3) WHERE estado='generando'", [INTERRUPTED]);
+  return result.affectedRows;
+}
+
 /** Última sugerencia no reemplazada de la solicitud, como se muestra en pantalla (o null). */
 export async function latestSuggestion(solicitudId, c) {
   const [solicitud] = await query('SELECT base_version_id FROM ia_solicitudes WHERE id=?', [solicitudId], c);
   if (!solicitud) throw fail('Solicitud no encontrada.', 404);
-  const [row] = await query(`SELECT *, (estado='generando' AND created_at < ${STALE_BEFORE}) interrumpida FROM ia_sugerencias
+  // Solo lo que se muestra: corre en cada detalle y en cada consulta mientras se genera (sin mensajes, respuesta ni uso).
+  const [row] = await query(`SELECT id, estado, base_version_id, error, autor, indicacion, created_at, propuesta, aprobaciones,
+    (estado='generando' AND created_at < ${STALE_BEFORE}) interrumpida FROM ia_sugerencias
     WHERE solicitud_id=? AND estado<>'reemplazada' ORDER BY created_at DESC, id DESC LIMIT 1`, [solicitudId], c);
   if (!row) return null;
   const interrumpida = Boolean(Number(row.interrumpida));
