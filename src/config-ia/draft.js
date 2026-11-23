@@ -38,14 +38,17 @@ export function validateChanges(cambios) {
     if (!c || !['crear', 'modificar'].includes(c.op)) throw bad('Tipo de cambio no reconocido.');
     const autor = normalizeAuthor(c.autor);
     const motivo = typeof c.motivo === 'string' ? c.motivo.trim() : '';
+    // Cambio originado por una sugerencia de IA (opcional): no afecta las reglas ni la huella.
+    if (c.sugerencia_id != null && !/^[0-9a-f-]{36}$/i.test(c.sugerencia_id)) throw bad('Sugerencia no válida.');
+    const extra = c.sugerencia_id != null ? { sugerencia_id: c.sugerencia_id } : {};
     if (c.codigo != null) {
       if (!/^R-\d+$/.test(c.codigo)) throw bad('Código de regla no válido.');
       if (seen.has(c.codigo)) throw bad(`La regla ${c.codigo} tiene más de un cambio en el borrador.`);
       seen.add(c.codigo);
     }
-    if (c.op === 'crear') return { op: 'crear', codigo: c.codigo ?? null, texto: normalizeText(c.texto), criterios: normalizeCriteria(c.criterios), autor, motivo };
+    if (c.op === 'crear') return { op: 'crear', codigo: c.codigo ?? null, texto: normalizeText(c.texto), criterios: normalizeCriteria(c.criterios), autor, motivo, ...extra };
     if (!c.codigo) throw bad('Indica la regla que se modifica.');
-    const out = { op: 'modificar', codigo: c.codigo, autor, motivo };
+    const out = { op: 'modificar', codigo: c.codigo, autor, motivo, ...extra };
     if (c.texto !== undefined) out.texto = normalizeText(c.texto);
     if (c.criterios !== undefined) out.criterios = normalizeCriteria(c.criterios);
     if (c.activa !== undefined) {

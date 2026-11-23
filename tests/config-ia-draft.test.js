@@ -99,3 +99,17 @@ test('canPublish: una prueba parcial (con errores) no habilita publicar', () => 
   const partial = { base_version_id: 'v2', huella, criterios: [4], exploratoria: false, estado: 'partial', veredicto: 'funciono', created_at: '2026-01-02' };
   assert.deepEqual(canPublish({ production, cambios, tests: [partial] }), { ok: false, motivo: 'La prueba tuvo errores; vuelve a probar.' });
 });
+
+test('validateChanges conserva sugerencia_id y lo valida; no altera la huella', () => {
+  const id = '123e4567-e89b-12d3-a456-426614174000';
+  const [c, m] = validateChanges([
+    { ...crear(null), sugerencia_id: id },
+    { ...modificar('R-1', { texto: 'x' }, antesDe(base[0])), sugerencia_id: id },
+  ]);
+  assert.equal(c.sugerencia_id, id);
+  assert.equal(m.sugerencia_id, id);
+  assert.throws(() => validateChanges([{ ...crear(null), sugerencia_id: 'x' }]), { statusCode: 400, message: 'Sugerencia no válida.' });
+  const sin = [crear('R-3')];
+  const con = [{ ...crear('R-3'), sugerencia_id: id }];
+  assert.equal(rulesFingerprint(applyChanges(base, con).rules), rulesFingerprint(applyChanges(base, sin).rules));
+});
