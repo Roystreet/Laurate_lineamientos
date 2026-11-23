@@ -1,5 +1,5 @@
 import {useEffect,useState} from 'react';
-import {Plus,Pencil,Power,Undo2,Save} from 'lucide-react';
+import {Plus,Pencil,Power,Undo2,Save,Sparkles} from 'lucide-react';
 import {CRITERIOS,put,type Change,type Rule,type RequestDetail} from './types';
 import {CriteriaChips} from './RulesTab';
 
@@ -22,11 +22,12 @@ function RuleForm({form,onChange,onSubmit,onCancel}:{form:Form;onChange:(f:Form)
 const snapshot=(r:Rule)=>({texto:r.texto,criterios:r.criterios,activa:r.activa});
 
 /** Reglas de producción con los cambios del borrador encima. Cada cambio pide motivo; "Guardar borrador" los envía. */
-export function DraftEditor({detail,autor,onSaved,onError}:{detail:RequestDetail;autor:string;onSaved:(d:RequestDetail)=>void;onError:(m:string)=>void}){
+export function DraftEditor({detail,autor,onSaved,onError,onSuggest,suggesting,onDirtyChange}:{detail:RequestDetail;autor:string;onSaved:(d:RequestDetail)=>void;onError:(m:string)=>void;onSuggest?:()=>void;suggesting?:boolean;onDirtyChange?:(dirty:boolean)=>void}){
   const [cambios,setCambios]=useState<Change[]>(detail.borrador.cambios),[form,setForm]=useState<Form|null>(null),[busy,setBusy]=useState(false);
   useEffect(()=>setCambios(detail.borrador.cambios),[detail]);
   const closed=['publicada','rechazada'].includes(detail.estado);
   const dirty=JSON.stringify(cambios)!==JSON.stringify(detail.borrador.cambios);
+  useEffect(()=>onDirtyChange?.(dirty),[dirty,onDirtyChange]);
   const base=detail.borrador.base.reglas,conflict=(codigo?:string|null)=>detail.borrador.conflictos.find(c=>c.codigo===codigo);
   const changeOf=(codigo:string)=>cambios.find(c=>c.op==='modificar'&&c.codigo===codigo);
   const effective=(r:Rule):Rule=>{const c=changeOf(r.codigo);return c?{...r,...(c.texto!==undefined?{texto:c.texto}:{}),...(c.criterios?{criterios:c.criterios}:{}),...(c.activa!==undefined?{activa:c.activa}:{})}:r;};
@@ -39,7 +40,7 @@ export function DraftEditor({detail,autor,onSaved,onError}:{detail:RequestDetail
       // `antes` is the production rule this edit was made against. It only moves forward when the user
       // edits a rule whose conflict (and current production text) is on screen.
       const antes=conflict(f.codigo)||!prev?.antes?snapshot(original):prev.antes;
-      const next:Change={op:'modificar',codigo:f.codigo,...(prev?.texto!==undefined?{texto:prev.texto}:{}),...(prev?.criterios?{criterios:prev.criterios}:{}),...(prev?.activa!==undefined?{activa:prev.activa}:{}),
+      const next:Change={op:'modificar',codigo:f.codigo,...(prev?.sugerencia_id?{sugerencia_id:prev.sugerencia_id}:{}),...(prev?.texto!==undefined?{texto:prev.texto}:{}),...(prev?.criterios?{criterios:prev.criterios}:{}),...(prev?.activa!==undefined?{activa:prev.activa}:{}),
         ...(f.mode==='editar'?{texto:f.texto.trim(),criterios:f.criterios}:{activa:f.activa}),antes,motivo:f.motivo.trim(),autor};
       setCambios(cs=>[...cs.filter(c=>c!==prev),next]);
     }
@@ -52,16 +53,16 @@ export function DraftEditor({detail,autor,onSaved,onError}:{detail:RequestDetail
   const created=cambios.map((c,index)=>({c,index})).filter(x=>x.c.op==='crear');
   const formFor=(match:boolean)=>form&&match?<RuleForm form={form} onChange={setForm} onSubmit={()=>apply(form)} onCancel={()=>setForm(null)}/>:null;
   return <div className="cia-draft">
-    <div className="cia-draft-head"><h4>Borrador sobre v{detail.borrador.base.numero}</h4>{!closed?<button className="secondary small" onClick={()=>setForm({mode:'crear',texto:'',criterios:[detail.criterio_id],motivo:''})}><Plus size={14}/>Agregar regla</button>:null}</div>
+    <div className="cia-draft-head"><h4>Borrador sobre v{detail.borrador.base.numero}</h4>{!closed?<span className="cia-actions"><button className="secondary small" onClick={()=>setForm({mode:'crear',texto:'',criterios:[detail.criterio_id],motivo:''})}><Plus size={14}/>Agregar regla</button>{onSuggest?<button className="secondary small" disabled={suggesting||!autor.trim()} onClick={onSuggest}><Sparkles size={14}/>Sugerir regla con IA</button>:null}</span>:null}</div>
     {formFor(form?.mode==='crear'&&form.index===undefined)}
     <ul className="cia-rule-list">
-      {created.map(({c,index})=><li key={c.codigo ?? `nueva-${index}`} className="changed"><span className="cia-badge nueva">Nueva</span>{c.codigo?<span className="code">{c.codigo}</span>:null}<span className="cia-rule-text">{c.texto}</span><CriteriaChips ids={c.criterios ?? []}/>
+      {created.map(({c,index})=><li key={c.codigo ?? `nueva-${index}`} className="changed"><span className="cia-badge nueva">Nueva</span>{c.sugerencia_id?<span className="cia-badge ia">Sugerida por IA</span>:null}{c.codigo?<span className="code">{c.codigo}</span>:null}<span className="cia-rule-text">{c.texto}</span><CriteriaChips ids={c.criterios ?? []}/>
         {conflict(c.codigo)?<span className="cia-hint">{conflict(c.codigo)!.motivo}</span>:null}
         {!closed?<span className="cia-actions"><button className="text-button" onClick={()=>setForm({mode:'crear',index,texto:c.texto ?? '',criterios:c.criterios ?? [],motivo:c.motivo ?? ''})}><Pencil size={13}/>Editar</button><button className="text-button" onClick={()=>setCambios(cs=>cs.filter((_,i)=>i!==index))}><Undo2 size={13}/>Quitar</button></span>:null}
         {formFor(form?.mode==='crear'&&form.index===index)}</li>)}
       {base.map(original=>{const r=effective(original),c=changeOf(original.codigo),clash=conflict(r.codigo);return <li key={r.codigo} className={(c?'changed ':'')+(r.activa?'':'inactive')}>
         {c?<span className={'cia-badge '+(c.texto!==undefined||c.criterios?'editada':c.activa?'activada':'desactivada')}>{c.texto!==undefined||c.criterios?'Editada':c.activa?'Activada':'Desactivada'}</span>:null}
-        <span className="code">{r.codigo}</span><span className="cia-rule-text">{r.texto}</span><CriteriaChips ids={r.criterios}/>{r.activa?null:<span className="status">Inactiva</span>}
+        <span className="code">{r.codigo}</span><span className="cia-rule-text">{r.texto}</span><CriteriaChips ids={r.criterios}/>{c?.sugerencia_id?<span className="cia-badge ia">Sugerida por IA</span>:null}{r.activa?null:<span className="status">Inactiva</span>}
         {clash?<span className="cia-hint">{clash.motivo} Producción ahora: “{original.texto}”{original.activa?'':' (inactiva)'}.</span>:null}
         {!closed?<span className="cia-actions">
           <button className="text-button" onClick={()=>setForm({mode:'editar',codigo:r.codigo,texto:r.texto,criterios:r.criterios,motivo:c?.motivo ?? ''})}><Pencil size={13}/>Editar</button>

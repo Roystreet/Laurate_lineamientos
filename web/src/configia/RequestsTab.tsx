@@ -1,10 +1,11 @@
 import {useCallback,useEffect,useState} from 'react';
 import {Plus,FlaskConical,Upload,XCircle} from 'lucide-react';
 import {api,post,Empty,Modal} from '../ui';
-import {criterioName,formatDate,requestStateLabels,rowTitle,type RequestRow,type RequestDetail,type FindingRow} from './types';
+import {criterioName,formatDate,requestStateLabels,rowTitle,type RequestRow,type RequestDetail,type FindingRow,type Suggestion} from './types';
 import {AuthorField,useAuthor} from './AuthorField';
 import {HallazgoPicker,emptyFinding,findingReady,type FindingRef} from './HallazgoPicker';
 import {DraftEditor} from './DraftEditor';
+import {SuggestionCard} from './SuggestionCard';
 
 export const StateBadge=({estado}:{estado:string})=><span className={'status cia-'+estado}>{requestStateLabels[estado] ?? estado}</span>;
 const eventLabels:Record<string,string>={creada:'Creada',borrador_guardado:'Borrador guardado',prueba_creada:'Prueba ejecutada',veredicto:'Veredicto registrado',publicada:'Publicada',rechazada:'Rechazada'};
@@ -25,15 +26,30 @@ function NewRequest({onCreated,onClose,onError}:{onCreated:(id:string)=>void;onC
     <AuthorField value={autor} onChange={setAutor}/>
     <HallazgoPicker value={finding} onChange={setFinding} onError={onError}/>
     <label className="cia-field">¿Qué está mal?<textarea value={descripcion} onChange={e=>setDescripcion(e.target.value)} placeholder="Describe por qué el resultado no es correcto."/></label>
-    <label className="cia-field">¿Qué esperabas?<textarea value={esperado} onChange={e=>setEsperado(e.target.value)} placeholder="Cómo debería haberlo evaluado la IA."/></label>
+    <label className="cia-field">¿Qué esperabas?<textarea value={esperado} onChange={e=>setEsperado(e.target.value)} placeholder="Cómo debería haberlo evaluado la IA."/><p className="muted">La IA usará esto para sugerir la regla.</p></label>
     <button className="primary" disabled={busy||!autor.trim()||!descripcion.trim()||!findingReady(finding)} onClick={()=>void create()}>Crear solicitud</button>
   </div></Modal>;
 }
 
 export function RequestDetailModal({id,onClose,onOpenPlayground,onChanged,onError}:{id:string;onClose:()=>void;onOpenPlayground:(id:string)=>void;onChanged:()=>void;onError:(m:string)=>void}){
   const [detail,setDetail]=useState<RequestDetail|null>(null),[autor,setAutor]=useAuthor(),[rejecting,setRejecting]=useState(false),[motivo,setMotivo]=useState(''),[busy,setBusy]=useState(false);
-  const load=useCallback(()=>api<RequestDetail>(`/config-ia/requests/${id}`).then(setDetail).catch(e=>onError(e.message)),[id,onError]);
+  const [sugerencia,setSugerencia]=useState<Suggestion|null>(null),[dirty,setDirty]=useState(false);
+  const load=useCallback(()=>api<RequestDetail>(`/config-ia/requests/${id}`).then(d=>{setDetail(d);setSugerencia(d.sugerencia ?? null);}).catch(e=>onError(e.message)),[id,onError]);
   useEffect(()=>{void load();},[load]);
+  // Polls only the suggestion: reloading `detail` would reset the unsaved draft changes in DraftEditor.
+  const generating=sugerencia?.estado==='generando';
+  useEffect(()=>{
+    if(!generating)return;
+    const timer=setInterval(()=>{api<{sugerencia:Suggestion|null}>(`/config-ia/requests/${id}/suggestion`).then(r=>setSugerencia(r.sugerencia)).catch(()=>{/* retried on the next tick */});},2500);
+    return ()=>clearInterval(timer);
+  },[generating,id]);
+  const afterSuggestion=(d:RequestDetail)=>{setDetail(d);setSugerencia(d.sugerencia ?? null);onChanged();};
+  async function suggest(indicacion=''){
+    try{
+      await post(`/config-ia/requests/${id}/suggestions`,{autor,...(indicacion?{indicacion}:{})});
+      const r=await api<{sugerencia:Suggestion|null}>(`/config-ia/requests/${id}/suggestion`);setSugerencia(r.sugerencia);
+    }catch(e){onError((e as Error).message);}
+  }
   async function act(fn:()=>Promise<unknown>){setBusy(true);try{await fn();await load();onChanged();}catch(e){onError((e as Error).message);}finally{setBusy(false);}}
   if(!detail)return <Modal title="Solicitud" onClose={onClose}><p className="muted">Cargando…</p></Modal>;
   const closed=['publicada','rechazada'].includes(detail.estado);
@@ -42,7 +58,10 @@ export function RequestDetailModal({id,onClose,onOpenPlayground,onChanged,onErro
     <div><h4>Qué está mal</h4><p>{detail.descripcion}</p>{detail.esperado?<><h4>Qué se esperaba</h4><p>{detail.esperado}</p></>:null}{detail.motivo_rechazo?<p className="cia-hint">Rechazada: {detail.motivo_rechazo}</p>:null}</div>
     <div><h4>Resultado original</h4><FindingCard row={detail.fila_copia}/></div>
     {!closed?<AuthorField value={autor} onChange={setAutor}/>:null}
-    <DraftEditor detail={detail} autor={autor} onSaved={d=>{setDetail(d);onChanged();}} onError={onError}/>
+    {sugerencia&&sugerencia.estado!=='descartada'?<SuggestionCard value={sugerencia} closed={closed} draftDirty={dirty} autor={autor} onRequest={suggest}
+      onApprove={async body=>{try{afterSuggestion(await post<RequestDetail>(`/config-ia/suggestions/${sugerencia.id}/approve`,body));}catch(e){onError((e as Error).message);}}}
+      onDiscard={async()=>{try{afterSuggestion(await post<RequestDetail>(`/config-ia/suggestions/${sugerencia.id}/discard`,{autor}));}catch(e){onError((e as Error).message);}}}/>:null}
+    <DraftEditor detail={detail} autor={autor} onSaved={d=>{setDetail(d);onChanged();}} onError={onError} onSuggest={()=>void suggest()} suggesting={generating} onDirtyChange={setDirty}/>
     {detail.pruebas.length?<div><h4>Pruebas</h4><ul className="cia-rule-list">{detail.pruebas.map(t=><li key={t.id}>{formatDate(t.created_at)} · <span className="status">{t.estado==='complete'?'Completada':t.estado==='partial'?'Parcial':'En curso'}</span>{t.exploratoria?<span className="type-tag">Exploratoria</span>:null}{t.veredicto?<StateBadge estado={t.veredicto}/>:null}{t.revisor?` ${t.revisor}`:''}{t.comentario?` — ${t.comentario}`:''}</li>)}</ul></div>:null}
     {!closed?<div className="cia-actions">
       <button className="secondary" onClick={()=>onOpenPlayground(detail.id)}><FlaskConical size={15}/>Probar en el playground</button>

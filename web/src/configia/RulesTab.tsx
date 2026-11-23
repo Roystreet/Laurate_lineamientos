@@ -28,7 +28,7 @@ export function RulesTab({revision,onError}:{revision:number;onError:(message:st
       {rules.map(r=><tr key={r.codigo}><td><span className="code">{r.codigo}</span></td><td className="cia-rule-text">{r.texto}</td><td><CriteriaChips ids={r.criterios}/></td><td><span className={'status cia-rule-'+r.estado}>{ruleStateLabels[r.estado]}</span></td><td>{r.desde?`v${r.desde}`:'—'}</td><td><button className="text-button" aria-label={`Historial de ${r.codigo}`} onClick={()=>void openHistory(r.codigo)}><History size={14}/>Historial</button></td></tr>)}
     </tbody></table></div>:<Empty title="Sin reglas" text="Todavía no hay reglas con estos filtros. Las reglas nacen de una solicitud de mejora."/>}
     {history?<Modal title={`Historial de ${history.codigo}`} onClose={()=>setHistory(null)}>
-      {history.rows.length?<ol className="cia-timeline">{history.rows.map((h,i)=><li key={i}><strong>{changeLabels[h.accion] ?? h.accion} en v{h.version_numero}</strong> · {h.autor} · {formatDate(h.created_at)}{h.solicitud_numero?` · Solicitud #${h.solicitud_numero}`:''}
+      {history.rows.length?<ol className="cia-timeline">{history.rows.map((h,i)=><li key={i}><strong>{changeLabels[h.accion] ?? h.accion} en v{h.version_numero}</strong> · {h.autor} · {formatDate(h.created_at)}{h.solicitud_numero?` · Solicitud #${h.solicitud_numero}`:''}{h.sugerencia_id?<> · <span className="cia-badge ia">Sugerida por IA</span></>:null}
         {h.motivo?<p>{h.motivo}</p>:null}<p className="cia-quote">{h.despues.texto}</p><CriteriaChips ids={h.despues.criterios}/></li>)}</ol>:<p className="muted">Esta regla aún no se ha publicado.</p>}
     </Modal>:null}
   </div>;

@@ -10,7 +10,7 @@ const steps=[
   {section:'documents',target:'evidence-context',title:'2. Relaciona las evidencias',text:'Selecciona el número del requerimiento. Sube sus documentos y asigna un ID a cada lineamiento, o relaciona un documento que ya hayas cargado.',icon:Files},
   {section:'analysis',target:'analysis-selection',title:'3. Elige qué analizar',text:'Busca tus requerimientos, recorre las páginas y selecciona hasta diez que estén listos. La selección se conserva al cambiar de página. Pulsa Analizar documentos.',icon:Play},
   {section:'results',target:'analysis-results',title:'4. Consulta cada requerimiento',text:'Abre el detalle de un requerimiento para revisar sus criterios, evidencias y hallazgos. Descarga el consolidado y los reportes. Puedes repetir esta guía con Reiniciar tour.',icon:BarChart3},
-  {section:'config',target:'config-tabs',title:'5. Mejora el análisis',text:'Si un hallazgo no es correcto, regístralo en Config IA. Allí se prueba el ajuste y se publica una nueva versión.',icon:SlidersHorizontal},
+  {section:'config',target:'config-tabs',title:'5. Mejora el análisis',text:'Si un hallazgo no es correcto, regístralo en Config IA. La IA sugiere la regla, tú la apruebas, se prueba y se publica una nueva versión.',icon:SlidersHorizontal},
 ] satisfies {section:Section;target:string;title:string;text:string;icon:typeof BookOpen}[];
 export function Tour({onNavigate,onClose}:{onNavigate:(section:Section)=>void;onClose:()=>void}){
   const [step,setStep]=useState(0),[box,setBox]=useState<DOMRect|null>(null),ref=useRef<HTMLDialogElement>(null),current=steps[step];

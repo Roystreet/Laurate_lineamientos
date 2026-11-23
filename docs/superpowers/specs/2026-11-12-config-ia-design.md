@@ -41,6 +41,8 @@ No hay usuarios, sesiones ni permisos (decisión explícita: "de momento sin usu
 - Cambiar el formato de los Excel ni de las filas de resultado.
 - Que la IA proponga mejoras por sí misma.
 
+> Actualización 2026-11-23: la IA redacta la regla que una persona pide en su solicitud; ver [2026-11-23-config-ia-regla-sugerida-design.md](2026-11-23-config-ia-regla-sugerida-design.md). Sigue sin proponer mejoras por iniciativa propia.
+
 **Antiobjetivos** (situaciones que serían un fracaso aunque el código funcione)
 - Que una regla rompa el formato JSON de salida y deje de generarse un Excel.
 - Que el playground altere Resultados, los Excel oficiales o el catálogo.
@@ -203,6 +205,8 @@ Rutas nuevas bajo `/api/config-ia/…`, mismas convenciones que la API actual: F
 - Una solicitud por "hallazgo faltante" se liga al criterio del requerimiento.
 - Copia del hallazgo al crear la solicitud.
 - Análisis previos quedan como "Anterior a Config IA".
+
+> Actualización 2026-11-23: la IA redacta la regla que una persona pide en su solicitud; ver [2026-11-23-config-ia-regla-sugerida-design.md](2026-11-23-config-ia-regla-sugerida-design.md). Sigue sin proponer mejoras por iniciativa propia.
 
 ## 14. A criterio de quien construye
 - Esquema exacto de tablas y nombres de rutas.

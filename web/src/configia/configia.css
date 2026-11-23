@@ -73,3 +73,8 @@ textarea{font:inherit;border:1px solid #dce5df;border-radius:7px;padding:9px 12p
 .cia-decision{border-top:1px solid var(--line);padding-top:14px;display:flex;flex-direction:column;gap:12px}
 .cia-warning{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 @media(max-width:720px){.cia-sbs-grid{grid-template-columns:1fr}}
+.cia-badge.ia{background:#f1edf8;color:#6f5a9a}
+.cia-suggestion{border:1px solid #d9d2ea;background:#fcfbfe;border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:12px;min-width:0;overflow-wrap:anywhere}
+.cia-suggestion p{margin:0}
+.cia-option{border:1px solid var(--line);background:#fff;border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+.cia-option-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
