@@ -22,7 +22,7 @@ services:
     restart: unless-stopped
   app:
     build: .
-    image: documental-plataforma:20261112-config-ia
+    image: documental-plataforma:20261123-regla-sugerida
     env_file: .env
     environment:
       MYSQL_HOST: documental-mysql
